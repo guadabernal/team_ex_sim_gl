@@ -5,14 +5,13 @@ project(team_ex_sim_gl)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Add GLFW and ImGui submodules
+# Disable unnecessary GLFW features
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
-# Add subdirectories for GLFW and ImGui
+# Add GLFW as a submodule
 add_subdirectory(third_party/glfw)
-add_subdirectory(third_party/imgui)
 
 # Include directories
 include_directories(include)
@@ -23,23 +22,21 @@ include_directories(third_party/imgui)
 file(GLOB_RECURSE SOURCES "source/*.cpp")
 file(GLOB_RECURSE HEADERS "include/*.h")
 
-# Define executable
-add_executable(team_ex_sim_gl ${SOURCES} ${HEADERS})
-
-# Link libraries
-target_link_libraries(team_ex_sim_gl glfw opengl32)
-target_link_libraries(team_ex_sim_gl imgui)
-
-# Link ImGui OpenGL + GLFW implementations
-target_sources(team_ex_sim_gl PRIVATE 
+# Add ImGui source files (manually include them)
+set(IMGUI_SOURCES
+    third_party/imgui/imgui.cpp
+    third_party/imgui/imgui_draw.cpp
+    third_party/imgui/imgui_widgets.cpp
+    third_party/imgui/imgui_tables.cpp
     third_party/imgui/backends/imgui_impl_glfw.cpp
     third_party/imgui/backends/imgui_impl_opengl2.cpp
 )
 
-# Include directories for ImGui backend
-target_include_directories(team_ex_sim_gl PRIVATE 
-    third_party/imgui/backends
-)
+# Define executable
+add_executable(team_ex_sim_gl ${SOURCES} ${HEADERS} ${IMGUI_SOURCES})
 
-# Set startup project for Visual Studio
-set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT team_ex_sim_gl)
+# Include ImGui backend sources
+target_include_directories(team_ex_sim_gl PRIVATE third_party/imgui/backends)
+
+# Link GLFW and OpenGL
+target_link_libraries(team_ex_sim_gl glfw opengl32)
