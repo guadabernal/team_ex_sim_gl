@@ -51,9 +51,9 @@ start team_ex_sim_gl.sln
 
 # Requirements:
 ### INPUT
-    (1) RR (#'s, Locations, sensors)
+    (1) RR (each => Location, time dropped, sensors)
     (2) VR Start and angle
-    (3) VR Start and angle and times for dropping RR's (each has sensor specs)
+    (3) VR Start and angle and RR's (each => times dropped, sensors)
     (4) whether we are running until dead or given a simmulation time limit
     (5) initial known maps (occupancy, sensors, incline)
 
@@ -64,6 +64,7 @@ start team_ex_sim_gl.sln
 ### OUTPUT
     (1) each robot's total run time (if it died) 
     (2) each robot's % of area explored (each grid section can only be explored once)
+    (3) final known maps
 
 ### Map Info: (each map has a real and known version)
     (1) Occupancy -> each cell can be (wall, ground type, hole)
