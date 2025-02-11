@@ -1,4 +1,34 @@
 # team_ex_sim_gl
+## Cloning the Repository
+To properly clone this repository, including all required submodules, use the following command:
+
+```sh
+git clone --recurse-submodules https://github.com/guadabernal/team_ex_sim_gl.git
+```
+
+If you have already cloned the repository without submodules, you can initialize them manually:
+
+```sh
+cd team_ex_sim_gl
+git submodule update --init --recursive
+```
+
+## Building the Project
+1. Ensure you have CMake installed.
+2. Run the following commands:
+
+```sh
+cmake -S . -B build
+cmake --build build
+```
+
+3. Run the executable:
+
+```sh
+./build/team_ex_sim_gl
+```
+
+
 
 ### INPUT
     (1) RR (#'s, Locations, sensors)
