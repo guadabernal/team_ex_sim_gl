@@ -1,4 +1,5 @@
 # team_ex_sim_gl
+
 ## Cloning the Repository
 To properly clone this repository, including all required submodules, use the following command:
 
@@ -15,18 +16,37 @@ git submodule update --init --recursive
 
 ## Building the Project
 1. Ensure you have CMake installed.
-2. Run the following commands:
+2. Create the build directory and generate the Visual Studio project files:
 
 ```sh
-cmake -S . -B build
-cmake --build build
+mkdir build
+cd build
+cmake .. -G "Visual Studio 17 2022"
 ```
 
-3. Run the executable:
+### Option 1: Build and Run Using CMake
+3. Build the project:
 
 ```sh
-./build/team_ex_sim_gl
+cmake --build .
 ```
+
+4. Run the executable:
+
+```sh
+./team_ex_sim_gl
+```
+
+### Option 2: Build and Run Using Visual Studio
+3. Open the generated Visual Studio solution file:
+
+```sh
+start team_ex_sim_gl.sln
+```
+
+4. Build the project inside Visual Studio.
+5. Set `team_ex_sim_gl` as the startup project.
+6. Click **Run** to execute the application.
 
 
 
