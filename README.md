@@ -21,7 +21,7 @@ git submodule update --init --recursive
 ```sh
 mkdir build
 cd build
-cmake .. -G "Visual Studio 17 2022"
+cmake ..
 ```
 
 ### Option 1: Build and Run Using CMake
