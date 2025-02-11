@@ -1,0 +1,31 @@
+cmake_minimum_required(VERSION 3.10)
+project(OpenGL_ImGui LANGUAGES CXX)
+
+find_package(OpenGL REQUIRED)
+
+# Set paths for submodules and source/include directories
+set(IMGUI_DIR "${CMAKE_SOURCE_DIR}/third_party/imgui")
+set(GLFW_DIR "${CMAKE_SOURCE_DIR}/third_party/glfw")
+set(SOURCE_DIR "${CMAKE_SOURCE_DIR}/source")
+set(INCLUDE_DIR "${CMAKE_SOURCE_DIR}/include")
+
+# Add GLFW
+add_subdirectory(${GLFW_DIR})
+include_directories(${GLFW_DIR}/include)
+
+# Add ImGui
+add_library(imgui
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp)
+include_directories(${IMGUI_DIR} ${INCLUDE_DIR})
+
+# Define executable
+add_executable(OpenGL_ImGui
+    ${SOURCE_DIR}/main.cpp)
+
+# Link libraries
+target_link_libraries(OpenGL_ImGui OpenGL::GL glfw imgui opengl32.lib)

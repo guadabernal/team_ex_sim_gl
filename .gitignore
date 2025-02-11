@@ -1,0 +1,33 @@
+# Ignore build directory
+/build/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+Makefile
+
+# Ignore compiled binaries
+/OpenGL_ImGui
+/OpenGL_ImGui.exe
+
+# Ignore VSCode and CLion IDE files
+/.vscode/
+/.idea/
+*.code-workspace
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Ignore generated files
+*.obj
+*.o
+*.pdb
+*.ilk
+*.lib
+*.dll
+*.exp
+
+# Ignore ImGui demo files (if not needed)
+third_party/imgui/examples/
+third_party/imgui/misc/
