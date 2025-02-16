@@ -21,6 +21,7 @@ include_directories(third_party/imgui)
 # Collect source files
 file(GLOB_RECURSE SOURCES "source/*.cpp")
 file(GLOB_RECURSE HEADERS "include/*.h")
+file(GLOB_RECURSE HEADERS "include/*.hpp")
 
 # Add ImGui source files (manually include them)
 set(IMGUI_SOURCES
