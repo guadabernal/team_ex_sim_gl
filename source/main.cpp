@@ -124,7 +124,7 @@ int main() {
     float total_size = 10; // meters
     int grid_size = total_size / cell_size;
     
-    int nRobots = 50;      // desired number of robots
+    int nRobots = 10;      // desired number of robots
     int sensorCount = 5;   // sensor count per robot
     
     Simulation simulation(grid_size, grid_size, cell_size, nRobots, sensorCount, 100, 0.01);
@@ -136,6 +136,9 @@ int main() {
     generateOfficeMap(simulation.known_grid.occupancy, cell_size, 0.15f, 0.9f); // first place walls
     addHoles(simulation.known_grid.occupancy, cell_size, muHoleSize, sigmaHoleSize); // second add holes
     // generateSensorX(...)
+    for (auto& row : simulation.grid.occupancy) {
+        std::fill(row.begin(), row.end(), -1);
+    }
 
     simulation.rr = spawnRobots(simulation, nRobots, sensorCount);
 
@@ -143,7 +146,9 @@ int main() {
 
 
     // Compute the scale factor so that the entire grid fits the window.
-    float renderScaleFactor = float(WINDOW_WIDTH) / (total_size);
+    float viewWidth = WINDOW_WIDTH / 2.0f;
+    float renderScaleFactor = viewWidth / total_size;
+    //float renderScaleFactor = float(WINDOW_WIDTH) / (total_size);
 
     // Create a mutex and an atomic flag for running the simulation update thread.
     std::mutex simMutex;
@@ -167,37 +172,52 @@ int main() {
     // Main rendering loop.
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Set up an orthographic projection so that our world coordinates map directly to screen pixels.
+        // Render left viewport (normal display)
+        glViewport(0, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT);
         glMatrixMode(GL_PROJECTION);
         glPushMatrix();
         glLoadIdentity();
-        glOrtho(0, WINDOW_WIDTH, WINDOW_HEIGHT, 0, -1, 1);
-
+        glOrtho(0, viewWidth, WINDOW_HEIGHT, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW);
         glPushMatrix();
         glLoadIdentity();
 
-        // Lock the simulation state during rendering.
-        {
+        {   // Lock simulation state and render the normal grid and robots.
             std::lock_guard<std::mutex> lock(simMutex);
             renderGrid(simulation, renderScaleFactor);
             renderRobots(simulation, renderScaleFactor);
         }
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
 
-        // Restore matrices.
-        glPopMatrix(); // Modelview
+        // Render right viewport (display with discovered occupancy overlay)
+        glViewport(WINDOW_WIDTH / 2, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT);
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        glOrtho(0, viewWidth, WINDOW_HEIGHT, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+
+        {   // Lock simulation state and render the grid with the pink overlay and robots.
+            std::lock_guard<std::mutex> lock(simMutex);
+            renderGridWithDiscovery(simulation, renderScaleFactor);
+            renderRobots(simulation, renderScaleFactor);
+        }
+        glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
         glMatrixMode(GL_MODELVIEW);
 
         glfwSwapBuffers(window);
+
         if (!running.load()) {
             std::cout << "Finishing everything" << std::endl;
             running.store(true);
-            // break; // break if wanted to stop the visualization
         }
     }
 

@@ -92,3 +92,43 @@ inline void renderGrid(const Simulation& simulation, float scaleFactor) {
         }
     }
 }
+
+
+inline void renderDiscoveredOccupancy(const Simulation& simulation, float scaleFactor) {
+    // Draw discovered cells (from simulation.grid.occupancy) in a semi-transparent pink.
+    int gridRows = simulation.grid.occupancy.size();
+    int gridCols = simulation.grid.occupancy[0].size();
+    float cellSize = simulation.known_grid.scale_m * scaleFactor;
+
+    // Enable blending for transparency.
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // For each cell, if it has been discovered (i.e. not unknown: -1), overlay pink.
+    for (int y = 0; y < gridRows; ++y) {
+        for (int x = 0; x < gridCols; ++x) {
+            if (simulation.grid.occupancy[y][x] != -1) {
+                glColor4f(1.0f, 0.4f, 0.7f, 0.5f); // pink with 50% transparency
+                float left = x * cellSize;
+                float top = y * cellSize;
+                float right = left + cellSize;
+                float bottom = top + cellSize;
+                glBegin(GL_QUADS);
+                glVertex2f(left, top);
+                glVertex2f(right, top);
+                glVertex2f(right, bottom);
+                glVertex2f(left, bottom);
+                glEnd();
+            }
+        }
+    }
+
+    glDisable(GL_BLEND);
+}
+
+inline void renderGridWithDiscovery(const Simulation& simulation, float scaleFactor) {
+    // Draw the true occupancy grid (as before).
+    renderGrid(simulation, scaleFactor);
+    // Then overlay discovered cells.
+    renderDiscoveredOccupancy(simulation, scaleFactor);
+}

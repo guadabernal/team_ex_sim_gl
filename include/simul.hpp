@@ -16,7 +16,39 @@ struct RescueRobot {
     bool rotating = false;     // Indicates if the robot is trying to rotate in place
 
 
-    void measure() { }
+    void measure(const std::vector<std::vector<int>>& trueOccupancy,
+        std::vector<std::vector<int>>& unknownOccupancy,
+        float cellSize) {
+        // Get sensor reading via ray casting.
+        std::vector<float> measurements = sensor_lidar(trueOccupancy, cellSize);
+        if (measurements.empty()) return;
+        float distance = measurements[0];
+        const float maxRange = 2.0f; // sensor maximum range in meters
+
+        // Mark cells along the ray as free space (1)
+        int steps = static_cast<int>(distance / cellSize);
+        for (int i = 0; i < steps; i++) {
+            float rayX = x + (i * cellSize) * std::cos(theta);
+            float rayY = y + (i * cellSize) * std::sin(theta);
+            int col = static_cast<int>(rayX / cellSize);
+            int row = static_cast<int>(rayY / cellSize);
+            if (row >= 0 && row < unknownOccupancy.size() &&
+                col >= 0 && col < unknownOccupancy[0].size()) {
+                unknownOccupancy[row][col] = 1; // mark as free (ground)
+            }
+        }
+        // If an obstacle is detected before max range, mark that cell as a wall (0)
+        if (distance < maxRange) {
+            float sensorX = x + distance * std::cos(theta);
+            float sensorY = y + distance * std::sin(theta);
+            int col = static_cast<int>(sensorX / cellSize);
+            int row = static_cast<int>(sensorY / cellSize);
+            if (row >= 0 && row < unknownOccupancy.size() &&
+                col >= 0 && col < unknownOccupancy[0].size()) {
+                unknownOccupancy[row][col] = 0; // mark as wall
+            }
+        }
+    }
 
     int checkCollision(const std::vector<std::vector<int>>& occupancy, float cellSize, const std::vector<RescueRobot>& robots) {
         float halfSize = size / 2.0f;
@@ -77,56 +109,78 @@ struct RescueRobot {
     //   dt        : time step.
     //   occupancy : occupancy grid where 0 = wall, 1 = ground, 2 = hole.
     //   cellSize  : physical size of each grid cell.
-    void move(float dt, const std::vector<std::vector<int>>& occupancy, float cellSize, const std::vector<RescueRobot>& robots) {
+    void move(float dt,
+        const std::vector<std::vector<int>>& occupancy, // used for collision checking & sensor simulation
+        float cellSize,
+        const std::vector<RescueRobot>& robots,
+        const std::vector<std::vector<int>>& trueOccupancy,  // true map (same as occupancy here)
+        std::vector<std::vector<int>>& unknownOccupancy) {   // grid to be updated via sensor measurements
         if (dead) return;  // Do nothing if the robot is dead.
 
-        // Save the current valid position.
         float prevX = x, prevY = y;
 
-        // If in rotating mode, use a constant rotation amount to turn in the same direction.
-        // Otherwise, apply a small random rotation.
         if (rotating) {
-            const float ROTATE_DELTA = 0.1f; // constant angle (radians)
+            const float ROTATE_DELTA = 0.1f;
             theta += ROTATE_DELTA;
         }
         else {
             static std::default_random_engine rng(std::random_device{}());
-            static std::uniform_real_distribution<float> angleDist(-0.1f, 0.1f); // radians
+            static std::uniform_real_distribution<float> angleDist(-0.1f, 0.1f);
             theta += angleDist(rng);
         }
 
-        // Use the robot's current speed (v) which should have been set during spawning.
         float candidateX = x + v * std::cos(theta) * dt;
         float candidateY = y + v * std::sin(theta) * dt;
 
-        // Temporarily update position for collision checking.
+        // Update position for collision checking.
         x = candidateX;
         y = candidateY;
         int collision = checkCollision(occupancy, cellSize, robots);
 
         if (collision == 0) {
-            // Valid move: commit candidate position and exit rotating mode.
             rotating = false;
         }
         else if (collision == 1) {
-            // Collision with a wall or another robot: revert to previous position and enable rotating mode.
             x = prevX;
             y = prevY;
             rotating = true;
             return;
         }
         else if (collision == 2) {
-            // Fell in a hole: stop movement and mark as dead.
             v = 0;
             dead = true;
             return;
         }
+
+        // At the end of move(), call measure() to update the unknown occupancy grid.
+        measure(occupancy, unknownOccupancy, cellSize);
     }
 
     float sensor_co2() { return 0; }
     int sensor_aqi() { return 0; }
     float sensor_heat() { return 0; }
-    std::vector<float> sensor_lidar() { return std::vector<float>(); }
+
+    std::vector<float> sensor_lidar(const std::vector<std::vector<int>>& occupancy, float cellSize) {
+        const float max_range = 2.0f;
+        float step = cellSize * 0.5f;  // step size for ray casting
+        float distance = 0.0f;
+        while (distance < max_range) {
+            float rayX = x + distance * std::cos(theta);
+            float rayY = y + distance * std::sin(theta);
+            int col = static_cast<int>(rayX / cellSize);
+            int row = static_cast<int>(rayY / cellSize);
+            if (row < 0 || row >= occupancy.size() ||
+                col < 0 || col >= occupancy[0].size()) {
+                break; // outside grid bounds
+            }
+            // Assume ground is represented as 1; any other value is an obstacle.
+            if (occupancy[row][col] != 1) {
+                return { distance };
+            }
+            distance += step;
+        }
+        return { max_range };
+    }
 };
 
 // Definition for Grid.
@@ -197,7 +251,7 @@ public:
 
         // Update each robot.
         for (auto& robot : rr) {
-            robot.move(dt, known_grid.occupancy, known_grid.scale_m, rr);
+            robot.move(dt, known_grid.occupancy, known_grid.scale_m, rr, known_grid.occupancy, grid.occupancy);
         }
         t += dt;
         return t >= max_time;
