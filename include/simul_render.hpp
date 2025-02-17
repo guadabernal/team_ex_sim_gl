@@ -10,20 +10,22 @@
 // -----------------------------------------------------------------------------
 inline void renderRobots(const Simulation& simulation, float scaleFactor) {
     for (const auto& robot : simulation.rr) {
+        if (robot.dead && robot.battery > 0)
+            continue;
+
         // Convert world coordinates (meters) to screen coordinates.
         float sx = robot.x * scaleFactor;
         float sy = robot.y * scaleFactor;
 
-        // Use the robot's own size (in meters).
-        float size = robot.size;  // e.g., 0.15m
+        float size = robot.size;
 
         // Define triangle vertices in the robot's local coordinate system.
         // The triangle points in the +x direction.
-        float tipX = size;      // Tip (front)
+        float tipX = size / 2.0f;      // Tip (front)
         float tipY = 0.0f;
-        float baseLeftX = -size;     // Rear left
+        float baseLeftX = -size / 2.0f;     // Rear left
         float baseLeftY = -size / 2.0f;
-        float baseRightX = -size;     // Rear right
+        float baseRightX = -size / 2.0f;     // Rear right
         float baseRightY = size / 2.0f;
 
         // Rotate the vertices by robot.theta.

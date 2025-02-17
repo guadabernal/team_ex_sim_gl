@@ -132,6 +132,59 @@ std::vector<Room> generateRandomOfficeLayout(float floor_width, float floor_heig
     return generateRandomOffices(0, 0, floor_width, floor_height, maxDepth, minRoomSize, rng);
 }
 
+// Function to add random holes to the occupancy grid.
+// grid: 2D grid where 1 represents ground.
+// scale: cell size in meters.
+// mu: average hole radius (in meters).
+// sigma: standard deviation for the hole radius (in meters).
+inline void addHoles(std::vector<std::vector<int>>& grid,
+    float scale,
+    float mu, float sigma)
+{
+    int rows = grid.size();
+    if (rows == 0) return;
+    int cols = grid[0].size();
+
+    // Seed random number generator with current time.
+    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+    std::mt19937 rng(seed);
+
+    // Randomly decide the number of holes (between 5 and 15).
+    std::uniform_int_distribution<int> holeCountDist(5, 15);
+    int numHoles = holeCountDist(rng);
+
+    // Normal distribution for hole radius (in meters).
+    std::normal_distribution<float> radiusDist(mu, sigma);
+
+    for (int i = 0; i < numHoles; i++) {
+        // Randomly choose a center cell for the hole.
+        std::uniform_int_distribution<int> rowDist(0, rows - 1);
+        std::uniform_int_distribution<int> colDist(0, cols - 1);
+        int centerRow = rowDist(rng);
+        int centerCol = colDist(rng);
+
+        // Sample the hole radius in meters and ensure it's at least one cell size.
+        float radiusMeters = radiusDist(rng);
+        radiusMeters = std::max(radiusMeters, scale);
+        int radiusCells = static_cast<int>(std::ceil(radiusMeters / scale));
+
+        // Loop over a bounding box around the center.
+        for (int r = std::max(0, centerRow - radiusCells); r < std::min(rows, centerRow + radiusCells + 1); r++) {
+            for (int c = std::max(0, centerCol - radiusCells); c < std::min(cols, centerCol + radiusCells + 1); c++) {
+                int dr = r - centerRow;
+                int dc = c - centerCol;
+                // If within the circle (using Euclidean distance), mark as a hole.
+                if (dr * dr + dc * dc <= radiusCells * radiusCells) {
+                    // Only replace ground cells (value 1) with holes (value 2).
+                    if (grid[r][c] == 1)
+                        grid[r][c] = 2;
+                }
+            }
+        }
+    }
+}
+
+
 // -----------------------------------------------------------------------------
 // Generate a graph (as an adjacency list) where each room is a node and an edge
 // is added between two rooms if they share a border (within some tolerance).

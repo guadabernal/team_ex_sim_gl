@@ -9,10 +9,119 @@ struct RescueRobot {
     float v;                   // Velocity components
     float battery;             // Battery level
     int time_drop;             // Time when the robot dropped (if applicable)
+
     std::vector<int> sensors;  // Sensor readings
 
+    bool dead = false;         // Indicates if the robot fell in a hole
+    bool rotating = false;     // Indicates if the robot is trying to rotate in place
+
+
     void measure() { }
-    void move() { }
+
+    int checkCollision(const std::vector<std::vector<int>>& occupancy, float cellSize, const std::vector<RescueRobot>& robots) {
+        float halfSize = size / 2.0f;
+        float left = x - halfSize;
+        float right = x + halfSize;
+        float top = y - halfSize;
+        float bottom = y + halfSize;
+
+        // Convert world coordinates to grid indices.
+        int col_min = static_cast<int>(std::floor(left / cellSize));
+        int col_max = static_cast<int>(std::floor(right / cellSize));
+        int row_min = static_cast<int>(std::floor(top / cellSize));
+        int row_max = static_cast<int>(std::floor(bottom / cellSize));
+
+        int rows = occupancy.size();
+        int cols = occupancy[0].size();
+        if (col_min < 0) col_min = 0;
+        if (row_min < 0) row_min = 0;
+        if (col_max >= cols) col_max = cols - 1;
+        if (row_max >= rows) row_max = rows - 1;
+
+        bool wallFound = false;
+        bool holeFound = false;
+        // Check occupancy grid.
+        for (int row = row_min; row <= row_max; ++row) {
+            for (int col = col_min; col <= col_max; ++col) {
+                int cell = occupancy[row][col];
+                if (cell != 1) { // Not ground.
+                    if (cell == 0)
+                        wallFound = true;
+                    else if (cell == 2)
+                        holeFound = true;
+                }
+            }
+        }
+        if (wallFound) return 1;
+        if (holeFound) return 2;
+
+        // Check collision with other robots.
+        for (const auto& other : robots) {
+            // Skip self.
+            if (&other == this) continue;
+            float otherHalf = other.size / 2.0f;
+            float otherLeft = other.x - otherHalf;
+            float otherRight = other.x + otherHalf;
+            float otherTop = other.y - otherHalf;
+            float otherBottom = other.y + otherHalf;
+            // Check for overlap using axis-aligned bounding box (AABB) collision.
+            bool overlapX = (x - halfSize < otherRight) && (x + halfSize > otherLeft);
+            bool overlapY = (y - halfSize < otherBottom) && (y + halfSize > otherTop);
+            if (overlapX && overlapY) return 1;
+        }
+        return 0;
+    }
+
+    // Modified move() function that uses collision checking against the occupancy grid.
+    // Parameters:
+    //   dt        : time step.
+    //   occupancy : occupancy grid where 0 = wall, 1 = ground, 2 = hole.
+    //   cellSize  : physical size of each grid cell.
+    void move(float dt, const std::vector<std::vector<int>>& occupancy, float cellSize, const std::vector<RescueRobot>& robots) {
+        if (dead) return;  // Do nothing if the robot is dead.
+
+        // Save the current valid position.
+        float prevX = x, prevY = y;
+
+        // If in rotating mode, use a constant rotation amount to turn in the same direction.
+        // Otherwise, apply a small random rotation.
+        if (rotating) {
+            const float ROTATE_DELTA = 0.1f; // constant angle (radians)
+            theta += ROTATE_DELTA;
+        }
+        else {
+            static std::default_random_engine rng(std::random_device{}());
+            static std::uniform_real_distribution<float> angleDist(-0.1f, 0.1f); // radians
+            theta += angleDist(rng);
+        }
+
+        // Use the robot's current speed (v) which should have been set during spawning.
+        float candidateX = x + v * std::cos(theta) * dt;
+        float candidateY = y + v * std::sin(theta) * dt;
+
+        // Temporarily update position for collision checking.
+        x = candidateX;
+        y = candidateY;
+        int collision = checkCollision(occupancy, cellSize, robots);
+
+        if (collision == 0) {
+            // Valid move: commit candidate position and exit rotating mode.
+            rotating = false;
+        }
+        else if (collision == 1) {
+            // Collision with a wall or another robot: revert to previous position and enable rotating mode.
+            x = prevX;
+            y = prevY;
+            rotating = true;
+            return;
+        }
+        else if (collision == 2) {
+            // Fell in a hole: stop movement and mark as dead.
+            v = 0;
+            dead = true;
+            return;
+        }
+    }
 
     float sensor_co2() { return 0; }
     int sensor_aqi() { return 0; }
@@ -60,63 +169,35 @@ public:
         max_time(max_time),
         dt(dt)
     {
-        // Random engine setup
-        std::default_random_engine rng(std::random_device{}());
-        std::uniform_real_distribution<float> posXDist(0.0f, grid_cols * scale_m);
-        std::uniform_real_distribution<float> posYDist(0.0f, grid_rows * scale_m);
-        std::uniform_real_distribution<float> thetaDist(0.0f, 2 * PI);
+        //// Random engine setup
+        //std::default_random_engine rng(std::random_device{}());
+        //std::uniform_real_distribution<float> posXDist(0.0f, grid_cols * scale_m);
+        //std::uniform_real_distribution<float> posYDist(0.0f, grid_rows * scale_m);
+        //std::uniform_real_distribution<float> thetaDist(0.0f, 2 * PI);
 
-        // Initialize each robot with a random position and orientation.
-        for (auto& robot : rr) {
-            robot.x = posXDist(rng);
-            robot.y = posYDist(rng);
-            robot.theta = thetaDist(rng);
-            robot.v = 0.0f;
-            robot.battery = 100.0f;
-            robot.time_drop = 0;
-            robot.sensors.resize(robot_sensor_count, 0);
-            robot.size = 0.12f; 
-        }
+        //// Initialize each robot with a random position and orientation.
+        //for (auto& robot : rr) {
+        //    robot.x = posXDist(rng);
+        //    robot.y = posYDist(rng);
+        //    robot.theta = thetaDist(rng);
+        //    robot.v = 0.0f;
+        //    robot.battery = 100.0f;
+        //    robot.time_drop = 0;
+        //    robot.sensors.resize(robot_sensor_count, 0);
+        //    robot.size = 0.12f; 
+        //}
     }
 
     // Update method: advances the simulation by dt seconds.
     // Each robot will update its orientation slightly (random change) and then
     // move at a constant speed. They will bounce off the grid boundaries.
     bool update() {
-        // Set up a random engine and a uniform distribution for a small angle change.
-        static std::default_random_engine rng(std::random_device{}());
-        static std::uniform_real_distribution<float> angleDist(-0.1f, 0.1f); // radians
-        // Compute grid boundaries (in meters)
-        float gridWidth = known_grid.occupancy[0].size() * known_grid.scale_m;
-        float gridHeight = known_grid.occupancy.size() * known_grid.scale_m;
-        const float speed = 0.2f; // Constant speed (m/s)
+        //float gridWidth = known_grid.occupancy[0].size() * known_grid.scale_m;
+        //float gridHeight = known_grid.occupancy.size() * known_grid.scale_m;
 
+        // Update each robot.
         for (auto& robot : rr) {
-            // Randomly change the robot's heading.
-            float dtheta = angleDist(rng);
-            robot.theta += dtheta;
-            // Update velocity based on the new heading.
-            robot.v = speed;
-            // Update position.
-            robot.x += robot.v * cos(robot.theta) * dt;
-            robot.y += robot.v * sin(robot.theta) * dt;
-            // Bounce off the grid boundaries.
-            if (robot.x < 0) {
-                robot.x = 0;
-                robot.theta = PI - robot.theta;
-            }
-            else if (robot.x > gridWidth) {
-                robot.x = gridWidth;
-                robot.theta = PI - robot.theta;
-            }
-            if (robot.y < 0) {
-                robot.y = 0;
-                robot.theta = -robot.theta;
-            }
-            else if (robot.y > gridHeight) {
-                robot.y = gridHeight;
-                robot.theta = -robot.theta;
-            }
+            robot.move(dt, known_grid.occupancy, known_grid.scale_m, rr);
         }
         t += dt;
         return t >= max_time;
