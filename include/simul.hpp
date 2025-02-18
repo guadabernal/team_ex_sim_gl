@@ -234,6 +234,10 @@ struct VineRobot {
     // Last update time for the tip sensor.
     float tipSensorLastUpdate;
 
+    bool retracting = false;
+    float retractRemaining = 0.0f;
+
+
     VineRobot()
         : theta(0.0f), expansionRate(0.5f), pivotIndex(0), tipSensorLastUpdate(0.0f)
     {
@@ -283,6 +287,58 @@ struct VineRobot {
 
     // The move function (unchanged from our turning/expansion logic).
     void move(const std::vector<std::vector<int>>& occupancy, float cellSize, float dt) {
+        // If currently retracting, retract gradually.
+        if (retracting) {
+            // Compute the retraction distance for this time step.
+            float d_retract = expansionRate * dt;
+            if (d_retract > retractRemaining)
+                d_retract = retractRemaining;
+            float remaining = d_retract;
+            // Remove points from the tip until we've retracted 'd_retract' meters.
+            while (remaining > 0 && points.size() > 1) {
+                float dx = points.back().first - points[points.size() - 2].first;
+                float dy = points.back().second - points[points.size() - 2].second;
+                float segLength = std::sqrt(dx * dx + dy * dy);
+                if (segLength <= remaining) {
+                    remaining -= segLength;
+                    points.pop_back();
+                }
+                else {
+                    float ratio = (segLength - remaining) / segLength;
+                    points.back().first = points[points.size() - 2].first + dx * ratio;
+                    points.back().second = points[points.size() - 2].second + dy * ratio;
+                    remaining = 0;
+                }
+            }
+            retractRemaining -= d_retract;
+            if (retractRemaining <= 0) {
+                // Retraction complete: update pivot and rotate 60°.
+                retracting = false;
+                pivotIndex = static_cast<int>(points.size()) - 1;
+                float turnAngle = 60.0f * (3.14159265f / 180.0f);
+                theta += turnAngle;
+            }
+            return;
+        }
+
+        // Check for collision in non-tip segments.
+        int collidingIndex = firstCollidingIndex(occupancy, cellSize);
+        if (collidingIndex != -1) {
+            int pointsFromTip = static_cast<int>(points.size()) - collidingIndex;
+            if (pointsFromTip <= 5) {
+                // Begin gradual retraction: set target of 10 cm.
+                retracting = true;
+                retractRemaining = 1.0f;
+                return;
+            }
+            else {
+                // Collision farther back—pause expansion.
+                expansionRate = 0;
+                return;
+            }
+        }
+
+        // Normal tip extension.
         float d = expansionRate * dt;
         auto currentTip = tip();
         std::pair<float, float> candidate = {
@@ -294,10 +350,7 @@ struct VineRobot {
             points.push_back(candidate);
         }
         else {
-            int collidingIdx = firstCollidingIndex(occupancy, cellSize);
-            if (collidingIdx != -1) {
-                pivotIndex = collidingIdx;
-            }
+            // If the tip is colliding, attempt a small sliding rotation.
             auto pivot = points[pivotIndex];
             float dx = currentTip.first - pivot.first;
             float dy = currentTip.second - pivot.second;
@@ -317,6 +370,7 @@ struct VineRobot {
                 points.push_back(candidate);
         }
     }
+
 
     // --- New Sensor Functions for Lidar Measurement from the Tip ---
 

@@ -163,10 +163,29 @@ int main() {
         robot.sensors.resize(sensorCount, 0);
         robot.sensorLastUpdateTimes.resize(sensorCount, 0.0f);
         // Set spawnTime—for example, spawn one every 5 seconds.
-        robot.spawnTime = 5.0f * i;
+        robot.spawnTime = 3.0f * i;
         robot.spawned = false;
         simulation.rr.push_back(robot);
     }
+    //for (int i = 0; i < 10; i++) {
+    //    RescueRobot robot;
+    //    // The x,y will be updated when the robot spawns.
+    //    robot.x = 1.5;
+    //    robot.y = 1.5;
+    //    robot.theta = 0.0f;  // Facing right.
+    //    robot.v = 0.2f;
+    //    robot.size = 0.12f;
+    //    robot.id = i;
+    //    robot.battery = 100.0f;
+    //    robot.time_drop = 0;
+    //    int sensorCount = 5;
+    //    robot.sensors.resize(sensorCount, 0);
+    //    robot.sensorLastUpdateTimes.resize(sensorCount, 0.0f);
+    //    // Set spawnTime—for example, spawn one every 5 seconds.
+    //    robot.spawnTime = 3.0f * i;
+    //    robot.spawned = false;
+    //    simulation.rr.push_back(robot);
+    //}
     simulation.nextRrSpawnIndex = 0;
 
     
