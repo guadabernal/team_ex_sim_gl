@@ -137,9 +137,7 @@ std::vector<Room> generateRandomOfficeLayout(float floor_width, float floor_heig
 // scale: cell size in meters.
 // mu: average hole radius (in meters).
 // sigma: standard deviation for the hole radius (in meters).
-inline void addHoles(std::vector<std::vector<int>>& grid,
-    float scale,
-    float mu, float sigma)
+inline void addHoles(std::vector<std::vector<int>>& grid, float scale, float mu, float sigma, int numHoles)
 {
     int rows = grid.size();
     if (rows == 0) return;
@@ -149,9 +147,11 @@ inline void addHoles(std::vector<std::vector<int>>& grid,
     unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
     std::mt19937 rng(seed);
 
-    // Randomly decide the number of holes (between 5 and 15).
-    std::uniform_int_distribution<int> holeCountDist(5, 15);
-    int numHoles = holeCountDist(rng);
+    if (numHoles == 0) {
+        // Randomly decide the number of holes (between 5 and 15).
+        std::uniform_int_distribution<int> holeCountDist(5, 15);
+        numHoles = holeCountDist(rng);
+    }
 
     // Normal distribution for hole radius (in meters).
     std::normal_distribution<float> radiusDist(mu, sigma);
@@ -183,7 +183,6 @@ inline void addHoles(std::vector<std::vector<int>>& grid,
         }
     }
 }
-
 
 // -----------------------------------------------------------------------------
 // Generate a graph (as an adjacency list) where each room is a node and an edge
@@ -243,7 +242,7 @@ void bfsTraversal(const std::vector<std::vector<int>>& graph, int start) {
     while (!q.empty()) {
         int current = q.front();
         q.pop();
-        std::cout << "Visited room " << current << "\n";
+        //std::cout << "Visited room " << current << "\n";
         for (int neighbor : graph[current]) {
             if (!visited[neighbor]) {
                 visited[neighbor] = true;
@@ -283,7 +282,7 @@ inline void generateOfficeMap(std::vector<std::vector<int>>& grid,
     // Walls
     int idx = 0;
     for (const auto &room : rooms) {
-        std::cout << idx << " " << room.x << ", " << room.y << ", " << room.w << ", " << room.h << std::endl;
+        //std::cout << idx << " " << room.x << ", " << room.y << ", " << room.w << ", " << room.h << std::endl;
         idx++;
         int x0 = room.x / scale;
         int y0 = room.y / scale;
