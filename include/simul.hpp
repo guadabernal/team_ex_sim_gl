@@ -2,13 +2,12 @@
 
 constexpr float PI = 3.14159265f;
 
-// Definition for RescueRobot.
 struct RescueRobot {
-    float x, y, theta;         // Position and orientation (in world units)
-    float size;                // Robot size in meters (should be about 0.15m)
-    float v;                   // Velocity components
-    float battery;             // Battery level
-    int time_drop;             // Time when the robot dropped (if applicable)
+    float x, y, theta;
+    float size;
+    float v;
+    float battery;
+    int time_drop;
     float time_death = 0.0f;
 
     std::vector<int> sensors;  // Sensor readings
@@ -19,14 +18,8 @@ struct RescueRobot {
 
     int id;
 
-
-    void measure(const std::vector<std::vector<int>>& trueOccupancy,
-        std::vector<std::vector<int>>& unknownOccupancy,
-        std::vector<std::vector<int>>& foundBy,
-        const std::vector<std::vector<float>>& trueHeat,
-        std::vector<std::vector<float>>& knownHeat,
-        float cellSize,
-        float currentTime)
+    void measure(const std::vector<std::vector<int>>& trueOccupancy, std::vector<std::vector<int>>& unknownOccupancy, std::vector<std::vector<int>>& foundBy, 
+        const std::vector<std::vector<float>>& trueHeat, std::vector<std::vector<float>>& knownHeat, float cellSize, float currentTime)
     {
         // ----- Distance Sensor Measurement (unchanged) -----
         const float defaultUpdateInterval = 0.1f;
@@ -133,16 +126,9 @@ struct RescueRobot {
         return 0;
     }
 
-    void move(float dt,
-        const std::vector<std::vector<int>>& occupancy,
-        float cellSize,
-        const std::vector<RescueRobot>& robots,
-        const std::vector<std::vector<int>>& trueOccupancy,
-        std::vector<std::vector<int>>& unknownOccupancy,
-        std::vector<std::vector<int>>& foundBy,
-        const std::vector<std::vector<float>>& trueHeat,
-        std::vector<std::vector<float>>& knownHeat,
-        float currentTime)
+    void move(float dt, const std::vector<std::vector<int>>& occupancy, float cellSize, const std::vector<RescueRobot>& robots,
+        const std::vector<std::vector<int>>& trueOccupancy, std::vector<std::vector<int>>& unknownOccupancy, std::vector<std::vector<int>>& foundBy,
+        const std::vector<std::vector<float>>& trueHeat, std::vector<std::vector<float>>& knownHeat, float currentTime)
     {
         if (currentTime < time_drop || dead) return;
         
@@ -186,8 +172,8 @@ struct RescueRobot {
 
     }
 
-    float sensor_co2() { return 0; }
-    int sensor_aqi() { return 0; }
+    
+    // --- Sensor Reading Functions Below -----
     float sensor_heat(const std::vector<std::vector<float>>& trueHeat, float cellSize) {
         int col = static_cast<int>(x / cellSize);
         int row = static_cast<int>(y / cellSize);
@@ -225,9 +211,17 @@ struct RescueRobot {
         }
         return { max_range };
     }
+
+    float sensor_co2() { return 0; }
+
+    int sensor_aqi() { return 0; }
 };
 
-// Definition for Grid.
+struct VineRobot {
+    float x, y, theta;         // initial position and orientation (in world units)
+    void move() {}
+};
+
 struct Grid {
     float scale_m;  // Size of each cell in meters
     std::vector<std::vector<float>> co2;
@@ -368,7 +362,10 @@ class Simulation {
 public:
     Grid known_grid;
     Grid grid;
+    
     std::vector<RescueRobot> rr;
+    //VineRobot vr;
+
     float t = 0;
     float dt;
     float max_time;

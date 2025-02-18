@@ -2,12 +2,6 @@
 #include <simul.hpp>
 #include <GLFW/glfw3.h>
 
-// -----------------------------------------------------------------------------
-// Function: renderRobots
-// Renders each robot in the simulation as a small triangle whose tip points in
-// the direction of its theta. The robot positions (in world coordinates) are
-// converted to screen coordinates using the provided scaleFactor.
-// -----------------------------------------------------------------------------
 inline void renderRobots(const Simulation& simulation, float scaleFactor) {
     for (const auto& robot : simulation.rr) {
         if (robot.dead && robot.battery > 0)
@@ -58,7 +52,6 @@ inline void renderRobots(const Simulation& simulation, float scaleFactor) {
     }
 }
 
-// A helper function to render the occupancy grid.
 inline void renderGrid(const Simulation& simulation, float scaleFactor) {
     int gridRows = simulation.known_grid.occupancy.size();
     int gridCols = simulation.known_grid.occupancy[0].size();
@@ -93,8 +86,6 @@ inline void renderGrid(const Simulation& simulation, float scaleFactor) {
         }
     }
 }
-
-
 
 inline void renderMeasurementGrid(const Simulation& simulation, float scaleFactor) {
     int gridRows = simulation.grid.occupancy.size();
@@ -141,46 +132,27 @@ inline void renderMeasurementGrid(const Simulation& simulation, float scaleFacto
     }
 }
 
-// Renders the heat map using known_grid.heat.
-// Cells at baseTemp (20 deg C) or below are white.
-// For cells above baseTemp, the color becomes red with increasing intensity.
-// A sensitivity factor is used so that even small temperature differences become noticeable.
-// Renders the heat map using known_grid.heat.
-// Cells at or below the base temperature (20 deg C) are white.
-// For cells above baseTemp, the color becomes increasingly red,
-// except that cells at the person temperature (37 deg C) are drawn in black.
-// After drawing the heat background, wall cells (occupancy==0) are overlaid in black,
-// then the robots are rendered on top.
 inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
     int rows = simulation.known_grid.heat.size();
     if (rows == 0) return;
     int cols = simulation.known_grid.heat[0].size();
     float cellSize = simulation.known_grid.scale_m * scaleFactor;
 
-    const float baseTemp = 20.0f;
-    const float personTemp = 37.0f;
-    const float sensitivity = 5.0f; // degrees above base for full red intensity
+    // Define the temperature range.
+    const float baseTemp = 20.0f;  // Light blue at 20°C.
+    const float maxTemp = 37.0f;   // Full red at 37°C.
 
-    // Draw the heat map background.
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             float temp = simulation.known_grid.heat[i][j];
-
-            // If the cell is at the person's temperature, color it black.
-            if (std::fabs(temp - personTemp) < 0.01f) {
-                glColor3f(0.0f, 0.0f, 0.0f);
-            }
-            else if (temp <= baseTemp) {
-                glColor3f(1.0f, 1.0f, 1.0f);
-            }
-            else {
-                float diff = temp - baseTemp;
-                float norm = diff / sensitivity;
-                if (norm > 1.0f)
-                    norm = 1.0f;
-                // At norm==0, color is white; at norm==1, color is fully red.
-                glColor3f(1.0f, 1.0f - norm, 1.0f - norm);
-            }
+            float norm = (temp - baseTemp) / (maxTemp - baseTemp);
+            if (norm < 0.0f) norm = 0.0f;
+            if (norm > 1.0f) norm = 1.0f;
+            // Linear interpolation: light blue (0.5,0.5,1.0) -> red (1.0,0.0,0.0).
+            float r = 0.8f + 0.8f * norm;
+            float g = 0.8f - 0.8f * norm;
+            float b = 1.0f - norm;
+            glColor3f(r, g, b);
 
             float left = j * cellSize;
             float top = i * cellSize;
@@ -215,9 +187,6 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
             }
         }
     }
-
-    // Render the robots on top.
-    renderRobots(simulation, scaleFactor);
 }
 
 inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFactor) {
@@ -226,26 +195,39 @@ inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFac
     int cols = simulation.grid.heat[0].size();
     float cellSize = simulation.known_grid.scale_m * scaleFactor;
 
-    const float baseTemp = 20.0f;
-    const float personTemp = 37.0f;
-    const float sensitivity = 5.0f; // degrees above base for full red intensity
+    // Temperature parameters.
+    const float baseTemp = 20.0f;  // Low measured temperature (for mapping)
+    const float maxTemp = 37.0f;   // High measured temperature (for mapping)
 
-    // Draw the discovered heat map background.
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
-            float temp = simulation.grid.heat[i][j];
-            if (std::fabs(temp - personTemp) < 0.01f) {
+            // First, check occupancy.
+            if (simulation.grid.occupancy[i][j] == -1) {
+                // Cell not discovered by the distance sensor: render as gray.
+                glColor3f(0.5f, 0.5f, 0.5f);
+            }
+            else if (simulation.grid.occupancy[i][j] == 0) {
+                // Discovered wall: render as black.
                 glColor3f(0.0f, 0.0f, 0.0f);
             }
-            else if (temp <= baseTemp) {
-                glColor3f(1.0f, 1.0f, 1.0f);
-            }
-            else {
-                float diff = temp - baseTemp;
-                float norm = diff / sensitivity;
-                if (norm > 1.0f)
-                    norm = 1.0f;
-                glColor3f(1.0f, 1.0f - norm, 1.0f - norm);
+            else if (simulation.grid.occupancy[i][j] == 1) {
+                // Discovered ground cell.
+                float temp = simulation.grid.heat[i][j];
+                if (temp == 0.0f) {
+                    // If the cell hasn't been updated by the heat sensor, render as white.
+                    glColor3f(1.0f, 1.0f, 1.0f);
+                }
+                else {
+                    // Otherwise, map the measured temperature from light blue to red.
+                    float norm = (temp - baseTemp) / (maxTemp - baseTemp);
+                    if (norm < 0.0f) norm = 0.0f;
+                    if (norm > 1.0f) norm = 1.0f;
+                    // At norm==0: light blue (0.5, 0.5, 1.0), at norm==1: red (1.0, 0.0, 0.0)
+                    float r = 0.8f + 0.8f * norm;
+                    float g = 0.8f - 0.8f * norm;
+                    float b = 1.0f - norm;
+                    glColor3f(r, g, b);
+                }
             }
 
             float left = j * cellSize;
@@ -261,7 +243,7 @@ inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFac
         }
     }
 
-    // Optionally overlay discovered walls.
+    // Optionally, overlay discovered walls to reinforce boundaries.
     int occRows = simulation.grid.occupancy.size();
     int occCols = simulation.grid.occupancy[0].size();
     for (int y = 0; y < occRows; y++) {
@@ -281,11 +263,4 @@ inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFac
             }
         }
     }
-}
-
-
-inline void renderGridWithDiscovery(const Simulation& simulation, float scaleFactor) {
-    // For the measurement display, we only need the discovered grid rendered
-    // with the new colors (unexplored = grey, walls and holes as before).
-    renderMeasurementGrid(simulation, scaleFactor);
 }

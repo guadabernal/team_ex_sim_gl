@@ -88,14 +88,14 @@ std::vector<RescueRobot> spawnRobots(Simulation& simulation, int nRobots, int se
 
 
 int main() {
-    // Initialize GLFW.
+    // Initialize GLFW
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
         std::cerr << "Failed to initialize GLFW\n";
         return -1;
     }
 
-    // Create an OpenGL 1.0 window.
+    // Create an OpenGL 1.0 window
     GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "OpenGL 1.0 + ImGui", nullptr, nullptr);
     if (!window) {
         std::cerr << "Failed to create GLFW window\n";
@@ -103,8 +103,6 @@ int main() {
         return -1;
     }
     glfwMakeContextCurrent(window);
-
-    // Initialize ImGui.
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -112,12 +110,11 @@ int main() {
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL2_Init();
-    // Set clear color to white
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
 
-    // Create a Simulation instance.
-    // For example: a 100x100 grid with cells of 0.1 meters, 3 robots, and each robot has 5 sensors.
+    // --------------- Create Simulation consts --------------------
+
     float cell_size = 0.05f; // meters
     float total_size = 10;    // meters
     int grid_size = total_size / cell_size;
@@ -130,6 +127,8 @@ int main() {
     int numHoles = 8;
 
     int numOfPpl = 1;         // number of heat sources
+
+
     std::vector<std::pair<float, float>> personPositions;
     int gridCols = grid_size;
     int gridRows = grid_size;
@@ -146,13 +145,15 @@ int main() {
 
 
 
-
+    // --------------- Create Simulation instance --------------------
     Simulation simulation(grid_size, grid_size, cell_size, nRobots, sensorCount, 30, 0.01f, numOfPpl, personPositions);
+
+    // --------------- Fill Simulation Maps --------------------
+
     generateOfficeMap(simulation.known_grid.occupancy, cell_size, 0.15f, 0.9f); // first place walls
     addHoles(simulation.known_grid.occupancy, cell_size, muHoleSize, sigmaHoleSize, numHoles); // second add holes
     simulation.initializeHeatMap(10.0f, 20.0f);
 
-    // generateSensorX(...)
     for (auto& row : simulation.grid.occupancy) {
         std::fill(row.begin(), row.end(), -1);
     }
@@ -160,19 +161,16 @@ int main() {
     simulation.rr = spawnRobots(simulation, nRobots, sensorCount);
 
     
+    // --------------- Run Simulation & Plot--------------------
 
-
-    // Compute the scale factor so that the entire grid fits the window.
+    // Compute the scale factor so that the 4 grids fits the window.
     float viewWidth = WINDOW_WIDTH / 2.0f;
     float renderScaleFactor = viewWidth / total_size;
     //float renderScaleFactor = float(WINDOW_WIDTH) / (total_size);
 
-    // Create a mutex and an atomic flag for running the simulation update thread.
     std::mutex simMutex;
     std::atomic<bool> running(true);
-
-    // Start the simulation update thread.
-    bool simulationEnded = false; // Add this near your other state variables
+    bool simulationEnded = false;
 
     std::thread simThread([&simulation, &simMutex, &running, &simulationEnded]() {
         bool done = false;
@@ -181,11 +179,10 @@ int main() {
                 std::lock_guard<std::mutex> lock(simMutex);
                 done = simulation.update();
             }
-            if (done) {
-                simulationEnded = true;  // Signal that simulation has ended
-            }
+            if (done) simulationEnded = true;
+
             /*std::this_thread::sleep_for(std::chrono::microseconds(1));*/
-            std::this_thread::sleep_for(std::chrono::nanoseconds(500));
+            //std::this_thread::sleep_for(std::chrono::nanoseconds(500));
         }
         running.store(false);
         });
@@ -196,15 +193,12 @@ int main() {
         glfwPollEvents();
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Render your viewports (using your existing renderGrid, renderRobots, etc.)
+        // Render viewports
         {
             std::lock_guard<std::mutex> lock(simMutex);
 
-            // --------------------
-// Left side viewports (unchanged)
-// --------------------
-
-// Left Top: True occupancy grid with robots.
+            
+            // Left Top: True occupancy grid with robots.
             glViewport(0, WINDOW_HEIGHT / 2, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
             glMatrixMode(GL_PROJECTION);
             glPushMatrix();
@@ -229,13 +223,11 @@ int main() {
             glPushMatrix();
             glLoadIdentity();
             renderHeatMap(simulation, renderScaleFactor);
+            renderRobots(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
 
-            // --------------------
-            // Right side viewports (split into two vertical sections)
-            // --------------------
 
             // Right Top: Discovered occupancy grid with robots (lidar view).
             glViewport(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
@@ -246,7 +238,7 @@ int main() {
             glMatrixMode(GL_MODELVIEW);
             glPushMatrix();
             glLoadIdentity();
-            renderGridWithDiscovery(simulation, renderScaleFactor);
+            renderMeasurementGrid(simulation, renderScaleFactor);
             renderRobots(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
@@ -262,20 +254,17 @@ int main() {
             glPushMatrix();
             glLoadIdentity();
             renderDiscoveredHeatMap(simulation, renderScaleFactor);
+            renderRobots(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
         }
 
-        // Render ImGui elements if needed
         ImGui_ImplOpenGL2_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
         ImGui::Render();
-
         glfwSwapBuffers(window);
-
-        // If simulation is done, trigger window closure.
         if (simulationEnded) {
             std::cout << "Closing Simulation" << std::endl;
             glfwSetWindowShouldClose(window, GLFW_TRUE);
@@ -290,35 +279,37 @@ int main() {
     ImGui_ImplOpenGL2_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
-
-    // Destroy the original window.
     glfwDestroyWindow(window);
+
+
+
+    // --------------- Output Results -----------------------------
 
     int totalCells = simulation.grid.foundBy.size() * simulation.grid.foundBy[0].size();
     int coveredCells = 0;
+    
     for (auto& robot : simulation.rr) {
+        
         // Determine run time: if the robot died, use its time_drop; otherwise, the current simulation time.
         float runtime = robot.dead ? (robot.time_death - robot.time_drop) : (simulation.t - robot.time_drop);
-
-
-        // Count the cells in foundBy that this robot discovered.
+        
         int discoveredCount = 0;
         for (const auto& row : simulation.grid.foundBy) {
             for (int cell : row) {
-                if (cell == robot.id) {
-                    discoveredCount++;
-                }
+                if (cell == robot.id) discoveredCount++;
             }
         }
         coveredCells += discoveredCount;
         float percentExplored = (static_cast<float>(discoveredCount) / totalCells) * 100.0f;
 
-        std::cout << "Robot " << robot.id << ": Run time = " << runtime
-            << " sec, " << (robot.dead ? "Fell " : "Alive")
-            << ", % area exp = " << percentExplored << "%" << std::endl;
+        std::cout << "Robot " << robot.id << ": Run time = " << runtime << " sec, " << (robot.dead ? "Fell " : "Alive") << ", % area exp = " << percentExplored << "%" << std::endl;
     }
+
     float totalCoveragePercent = (static_cast<float>(coveredCells) / totalCells) * 100.0f;
     std::cout << "Total area coverage by all robots: " << totalCoveragePercent << "%" << std::endl;
+
+
+    // ----- Create a new ImGui context for the final window -----
 
     GLFWwindow* finalWindow = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Final Maps", nullptr, nullptr);
     if (!finalWindow) {
@@ -327,30 +318,22 @@ int main() {
         return -1;
     }
     glfwMakeContextCurrent(finalWindow);
-
-    // ----- Create a new ImGui context for the final window -----
-    // This will not conflict with any previous context since we've destroyed it.
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
-    //ImGuiIO& io = ImGui::GetIO(); // No redefinition error now.
     ImGui::StyleColorsDark();
-
-    // Initialize the ImGui backends for the new window.
     ImGui_ImplGlfw_InitForOpenGL(finalWindow, true);
     ImGui_ImplOpenGL2_Init();
 
-
-    // Final rendering loop for static maps.
     while (!glfwWindowShouldClose(finalWindow)) {
         glfwPollEvents();
         glClear(GL_COLOR_BUFFER_BIT);
 
         // You can reuse your rendering functions to show the final, frozen state.
-        glViewport(0, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT);
+        glViewport(0, WINDOW_HEIGHT / 2, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
         glMatrixMode(GL_PROJECTION);
         glPushMatrix();
         glLoadIdentity();
-        glOrtho(0, viewWidth, WINDOW_HEIGHT, 0, -1, 1);
+        glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW);
         glPushMatrix();
         glLoadIdentity();
@@ -360,15 +343,50 @@ int main() {
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
 
-        glViewport(WINDOW_WIDTH / 2, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT);
+        // Left Bottom: True heat map.
+        glViewport(0, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
         glMatrixMode(GL_PROJECTION);
         glPushMatrix();
         glLoadIdentity();
-        glOrtho(0, viewWidth, WINDOW_HEIGHT, 0, -1, 1);
+        glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW);
         glPushMatrix();
         glLoadIdentity();
-        renderGridWithDiscovery(simulation, renderScaleFactor);
+        renderHeatMap(simulation, renderScaleFactor);
+        renderRobots(simulation, renderScaleFactor);
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+
+        // --------------------
+        // Right side viewports (split into two vertical sections)
+        // --------------------
+
+        // Right Top: Discovered occupancy grid with robots (lidar view).
+        glViewport(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+        renderMeasurementGrid(simulation, renderScaleFactor);
+        renderRobots(simulation, renderScaleFactor);
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+
+        // Right Bottom: Discovered heat map from the robots' heat sensor.
+        glViewport(WINDOW_WIDTH / 2, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+        renderDiscoveredHeatMap(simulation, renderScaleFactor);
         renderRobots(simulation, renderScaleFactor);
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
@@ -395,13 +413,11 @@ int main() {
         glfwSwapBuffers(finalWindow);
     }
 
-    // Cleanup final window and ImGui.
     ImGui_ImplOpenGL2_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
     glfwDestroyWindow(finalWindow);
     glfwTerminate();
-
 
     return 0;
 }
