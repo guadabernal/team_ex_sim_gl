@@ -117,7 +117,7 @@ struct RescueRobot {
         // Check collision with other robots.
         for (const auto& other : robots) {
             // Skip self.
-            if (&other == this) continue;
+            if (&other == this || !other.spawned) continue;
             float otherHalf = other.size / 2.0f;
             float otherLeft = other.x - otherHalf;
             float otherRight = other.x + otherHalf;
@@ -622,98 +622,100 @@ public:
         numOfPpl(numOfPpl),
         sourcePositions(sourcePositions),
         rrActive(true),
-        vrActive(true),
+        vrActive(false),
         nextRrSpawnIndex(0)
     {}
 
     bool update() {
-    // Update the heat map.
-    heatmapUpdate(known_grid.occupancy, known_grid.heat, dt, known_grid.scale_m);
-    injectHeatSources(known_grid.heat, numOfPpl, sourcePositions, 37.0f, known_grid.scale_m);
+        // Update the heat map.
+        heatmapUpdate(known_grid.occupancy, known_grid.heat, dt, known_grid.scale_m);
+        injectHeatSources(known_grid.heat, numOfPpl, sourcePositions, 37.0f, known_grid.scale_m);
 
-    // Update the vine robot if active.
-    if (vrActive) {
-        vr.move(known_grid.occupancy, known_grid.scale_m, dt);
-        vr.measure(known_grid.occupancy, grid.occupancy, grid.foundBy,
-                   known_grid.heat, grid.heat, known_grid.scale_m, t);
-    }
+        // Update the vine robot if active.
+        if (vrActive) {
+            vr.move(known_grid.occupancy, known_grid.scale_m, dt);
+            vr.measure(known_grid.occupancy, grid.occupancy, grid.foundBy,
+                       known_grid.heat, grid.heat, known_grid.scale_m, t);
+        }
 
-    // Update rescue robots if active.
-    if (rrActive) {
-        // When both vine and rescue robots are active, spawn rescue robots
-        // at their designated spawn times using the vine tip as the spawn location.
-        if (vrActive && nextRrSpawnIndex < rr.size()) {
-            if (t >= rr[nextRrSpawnIndex].spawnTime) {
-                // Get the intended spawn point from the vine tip.
-                auto tip = vr.tip();
-                // Check that the spawn point is at least 1.2 * r away from any wall.
-                float requiredDistance = 1.2f * rr[nextRrSpawnIndex].size;
-                float scale = known_grid.scale_m;
-                int gridRows = known_grid.occupancy.size();
-                int gridCols = known_grid.occupancy[0].size();
+        // Update rescue robots if active.
+        if (rrActive) {
+            // When both vine and rescue robots are active, spawn rescue robots
+            // at their designated spawn times using the vine tip as the spawn location.
+            if (nextRrSpawnIndex < rr.size()) {
+                if (t >= rr[nextRrSpawnIndex].spawnTime) {
+                    // Get the intended spawn point from the vine tip.
+                    std::pair<float, float> spawnPoint;
+                    if (vrActive) {
+                        spawnPoint = vr.tip();
+                    }
+                    else {
+                        spawnPoint = { rr[nextRrSpawnIndex].x, rr[nextRrSpawnIndex].y };
+                    }
 
-                // We'll search within a bounding box around the tip.
-                int startRow = std::max(0, (int)std::floor((tip.second - requiredDistance) / scale));
-                int endRow = std::min(gridRows - 1, (int)std::floor((tip.second + requiredDistance) / scale));
-                int startCol = std::max(0, (int)std::floor((tip.first - requiredDistance) / scale));
-                int endCol = std::min(gridCols - 1, (int)std::floor((tip.first + requiredDistance) / scale));
+                    float requiredDistance = 1.2f * rr[nextRrSpawnIndex].size;
+                    float scale = known_grid.scale_m;
+                    int gridRows = known_grid.occupancy.size();
+                    int gridCols = known_grid.occupancy[0].size();
 
-                float minDist = std::numeric_limits<float>::max();
-                std::pair<float, float> closestWallCenter;
+                    int startRow = std::max(0, (int)std::floor((spawnPoint.second - requiredDistance) / scale));
+                    int endRow = std::min(gridRows - 1, (int)std::floor((spawnPoint.second + requiredDistance) / scale));
+                    int startCol = std::max(0, (int)std::floor((spawnPoint.first - requiredDistance) / scale));
+                    int endCol = std::min(gridCols - 1, (int)std::floor((spawnPoint.first + requiredDistance) / scale));
 
-                // Check each cell in the bounding box.
-                for (int r = startRow; r <= endRow; r++) {
-                    for (int c = startCol; c <= endCol; c++) {
-                        if (known_grid.occupancy[r][c] == 0) {  // wall cell
-                            float cellCenterX = (c + 0.5f) * scale;
-                            float cellCenterY = (r + 0.5f) * scale;
-                            float dist = std::sqrt((tip.first - cellCenterX) * (tip.first - cellCenterX) +
-                                                   (tip.second - cellCenterY) * (tip.second - cellCenterY));
-                            if (dist < minDist) {
-                                minDist = dist;
-                                closestWallCenter = { cellCenterX, cellCenterY };
+                    float minDist = std::numeric_limits<float>::max();
+                    std::pair<float, float> closestWallCenter;
+                    for (int r = startRow; r <= endRow; r++) {
+                        for (int c = startCol; c <= endCol; c++) {
+                            if (known_grid.occupancy[r][c] == 0) {  // wall cell
+                                float cellCenterX = (c + 0.5f) * scale;
+                                float cellCenterY = (r + 0.5f) * scale;
+                                float dist = std::sqrt((spawnPoint.first - cellCenterX) * (spawnPoint.first - cellCenterX) +
+                                    (spawnPoint.second - cellCenterY) * (spawnPoint.second - cellCenterY));
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    closestWallCenter = { cellCenterX, cellCenterY };
+                                }
                             }
                         }
                     }
-                }
-                // If the closest wall is too near, adjust the spawn point away from that wall.
-                if (minDist < requiredDistance) {
-                    float adjust = requiredDistance - minDist;
-                    float dx = tip.first - closestWallCenter.first;
-                    float dy = tip.second - closestWallCenter.second;
-                    float norm = std::sqrt(dx * dx + dy * dy);
-                    if (norm > 0) {
-                        tip.first += (dx / norm) * adjust;
-                        tip.second += (dy / norm) * adjust;
+                    if (minDist < requiredDistance) {
+                        float adjust = requiredDistance - minDist;
+                        float dx = spawnPoint.first - closestWallCenter.first;
+                        float dy = spawnPoint.second - closestWallCenter.second;
+                        float norm = std::sqrt(dx * dx + dy * dy);
+                        if (norm > 0) {
+                            spawnPoint.first += (dx / norm) * adjust;
+                            spawnPoint.second += (dy / norm) * adjust;
+                        }
                     }
+                    // Set the spawn location and mark the robot as spawned.
+                    rr[nextRrSpawnIndex].x = spawnPoint.first;
+                    rr[nextRrSpawnIndex].y = spawnPoint.second;
+                    rr[nextRrSpawnIndex].spawned = true;
+                    nextRrSpawnIndex++;
                 }
-                // Set the rescue robot's spawn location.
-                rr[nextRrSpawnIndex].x = tip.first;
-                rr[nextRrSpawnIndex].y = tip.second;
-                rr[nextRrSpawnIndex].spawned = true;
-                nextRrSpawnIndex++;
+            }
+            // Update all spawned rescue robots.
+            for (auto &robot : rr) {
+                if (robot.spawned && !robot.dead) {
+                    robot.move(dt,
+                               known_grid.occupancy,
+                               known_grid.scale_m,
+                               rr,                        // list of rescue robots
+                               known_grid.occupancy,      // true occupancy grid
+                               grid.occupancy,            // discovered occupancy grid
+                               grid.foundBy,              // foundBy grid
+                               known_grid.heat,           // true heat map
+                               grid.heat,                 // discovered heat map
+                               t);                        // current simulation time
+                }
             }
         }
-        // Update all spawned rescue robots.
-        for (auto &robot : rr) {
-            if (robot.spawned && !robot.dead) {
-                robot.move(dt,
-                           known_grid.occupancy,
-                           known_grid.scale_m,
-                           rr,                        // list of rescue robots
-                           known_grid.occupancy,      // true occupancy grid
-                           grid.occupancy,            // discovered occupancy grid
-                           grid.foundBy,              // foundBy grid
-                           known_grid.heat,           // true heat map
-                           grid.heat,                 // discovered heat map
-                           t);                        // current simulation time
-            }
-        }
-    }
 
-    t += dt;
-    return t >= max_time;
-}
+        t += dt;
+        return t >= max_time;
+    }
 
 
     void initializeHeatMap(float initTime, float baseTemp) {

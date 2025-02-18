@@ -6,7 +6,7 @@
 
 inline void renderRobots(const Simulation& simulation, float scaleFactor) {
     for (const auto& robot : simulation.rr) {
-        if (robot.dead && robot.battery > 0)
+        if (!robot.spawned || robot.dead && robot.battery > 0)
             continue;
 
         // Convert world coordinates (meters) to screen coordinates.
@@ -269,7 +269,7 @@ inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFac
 
 inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
     const VineRobot& vine = simulation.vr;
-    if (vine.points.empty()) return;
+    if (!simulation.vrActive || vine.points.empty()) return;
 
     // Draw the vine as a continuous line.
     glColor3f(0.0f, 0.8f, 0.0f); // Bright green.
