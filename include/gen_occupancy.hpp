@@ -144,7 +144,7 @@ inline void addHoles(std::vector<std::vector<int>>& grid, float scale, float mu,
     int cols = grid[0].size();
 
     // Seed random number generator with current time.
-    unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+    unsigned seed = 3; //  std::chrono::system_clock::now().time_since_epoch().count();
     std::mt19937 rng(seed);
 
     if (numHoles == 0) {

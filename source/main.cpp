@@ -13,10 +13,11 @@
 #include "gen_occupancy.hpp"
 #include "simul.hpp"
 #include "simul_render.hpp"
+#include <Windows.h>
 
 // Window size
-const int WINDOW_WIDTH = 800;
-const int WINDOW_HEIGHT = 800;
+const int WINDOW_WIDTH = 1200;
+const int WINDOW_HEIGHT = 1200;
 
 // GLFW error callback
 void glfw_error_callback(int error, const char* description) {
@@ -126,39 +127,47 @@ int main() {
     float sigmaHoleSize = 0.2;
     int numHoles = 8;
 
-    int numOfPpl = 1;         // number of heat sources
+    int numOfPpl = 2;         // number of heat sources
 
 
     std::vector<std::pair<float, float>> personPositions;
     int gridCols = grid_size;
     int gridRows = grid_size;
-    personPositions.push_back({ gridCols * 0.25f, gridRows * 0.1f });/*
+    personPositions.push_back({ gridCols * 0.25f, gridRows * 0.1f });
     personPositions.push_back({ gridCols * 0.8f, gridRows * 0.2f });
-    personPositions.push_back({ gridCols * 0.2f, gridRows * 0.8f });
-    personPositions.push_back({ gridCols * 0.8f, gridRows * 0.8f });
-    personPositions.push_back({ gridCols * 0.5f, gridRows * 0.2f });
-    personPositions.push_back({ gridCols * 0.5f, gridRows * 0.8f });
-    personPositions.push_back({ gridCols * 0.2f, gridRows * 0.5f });
-    personPositions.push_back({ gridCols * 0.8f, gridRows * 0.5f });
-    personPositions.push_back({ gridCols * 0.35f, gridRows * 0.35f });
-    personPositions.push_back({ gridCols * 0.65f, gridRows * 0.65f });*/
-
 
 
     // --------------- Create Simulation instance --------------------
     Simulation simulation(grid_size, grid_size, cell_size, nRobots, sensorCount, 30, 0.01f, numOfPpl, personPositions);
 
-    // --------------- Fill Simulation Maps --------------------
+    // --------------- Fill Simulation Maps and Robots --------------------
 
     generateOfficeMap(simulation.known_grid.occupancy, cell_size, 0.15f, 0.9f); // first place walls
     addHoles(simulation.known_grid.occupancy, cell_size, muHoleSize, sigmaHoleSize, numHoles); // second add holes
     simulation.initializeHeatMap(10.0f, 20.0f);
 
-    for (auto& row : simulation.grid.occupancy) {
-        std::fill(row.begin(), row.end(), -1);
+    //simulation.rr = spawnRobots(simulation, nRobots, sensorCount);
+    simulation.rr.clear();
+    for (int i = 0; i < 10; i++) {
+        RescueRobot robot;
+        // The x,y will be updated when the robot spawns.
+        robot.x = 0;
+        robot.y = 0;
+        robot.theta = 0.0f;  // Facing right.
+        robot.v = 0.2f;
+        robot.size = 0.12f;
+        robot.id = i;
+        robot.battery = 100.0f;
+        robot.time_drop = 0;
+        int sensorCount = 5;
+        robot.sensors.resize(sensorCount, 0);
+        robot.sensorLastUpdateTimes.resize(sensorCount, 0.0f);
+        // Set spawnTime—for example, spawn one every 5 seconds.
+        robot.spawnTime = 5.0f * i;
+        robot.spawned = false;
+        simulation.rr.push_back(robot);
     }
-
-    simulation.rr = spawnRobots(simulation, nRobots, sensorCount);
+    simulation.nextRrSpawnIndex = 0;
 
     
     // --------------- Run Simulation & Plot--------------------
@@ -173,6 +182,17 @@ int main() {
     bool simulationEnded = false;
 
     std::thread simThread([&simulation, &simMutex, &running, &simulationEnded]() {
+        DWORD_PTR simAffinityMask = 0x4; // CPU 1 (assuming 0-indexed cores)
+        HANDLE hSimThread = GetCurrentThread(); // Get current thread handle
+
+        DWORD_PTR previousMask = SetThreadAffinityMask(hSimThread, simAffinityMask);
+        if (previousMask == 0) {
+            std::cerr << "Failed to set affinity for simulation thread." << std::endl;
+        }
+        else {
+            std::cout << "Simulation thread affinity set successfully." << std::endl;
+        }
+
         bool done = false;
         while (running.load() && !done) {
             {
@@ -182,7 +202,7 @@ int main() {
             if (done) simulationEnded = true;
 
             /*std::this_thread::sleep_for(std::chrono::microseconds(1));*/
-            //std::this_thread::sleep_for(std::chrono::nanoseconds(500));
+            std::this_thread::sleep_for(std::chrono::nanoseconds(500));
         }
         running.store(false);
         });
@@ -209,6 +229,7 @@ int main() {
             glLoadIdentity();
             renderGrid(simulation, renderScaleFactor);
             renderRobots(simulation, renderScaleFactor);
+            renderVineRobot(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
@@ -224,6 +245,7 @@ int main() {
             glLoadIdentity();
             renderHeatMap(simulation, renderScaleFactor);
             renderRobots(simulation, renderScaleFactor);
+            renderVineRobot(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
@@ -240,6 +262,7 @@ int main() {
             glLoadIdentity();
             renderMeasurementGrid(simulation, renderScaleFactor);
             renderRobots(simulation, renderScaleFactor);
+            renderVineRobot(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
@@ -255,6 +278,7 @@ int main() {
             glLoadIdentity();
             renderDiscoveredHeatMap(simulation, renderScaleFactor);
             renderRobots(simulation, renderScaleFactor);
+            renderVineRobot(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
@@ -339,6 +363,7 @@ int main() {
         glLoadIdentity();
         renderGrid(simulation, renderScaleFactor);
         renderRobots(simulation, renderScaleFactor);
+        renderVineRobot(simulation, renderScaleFactor);
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
@@ -354,6 +379,7 @@ int main() {
         glLoadIdentity();
         renderHeatMap(simulation, renderScaleFactor);
         renderRobots(simulation, renderScaleFactor);
+        renderVineRobot(simulation, renderScaleFactor);
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
@@ -373,6 +399,7 @@ int main() {
         glLoadIdentity();
         renderMeasurementGrid(simulation, renderScaleFactor);
         renderRobots(simulation, renderScaleFactor);
+        renderVineRobot(simulation, renderScaleFactor);
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
@@ -388,6 +415,7 @@ int main() {
         glLoadIdentity();
         renderDiscoveredHeatMap(simulation, renderScaleFactor);
         renderRobots(simulation, renderScaleFactor);
+        renderVineRobot(simulation, renderScaleFactor);
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
