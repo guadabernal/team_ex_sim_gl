@@ -16,8 +16,12 @@
 #include <Windows.h>
 
 // Window size
-const int WINDOW_WIDTH = 1200;
+const int WINDOW_WIDTH = 1800; // increased to accommodate 3 columns
 const int WINDOW_HEIGHT = 1200;
+const int numCols = 3;
+const int numRows = 2;
+int colWidth = WINDOW_WIDTH / numCols;  // e.g., 600 pixels per column
+int rowHeight = WINDOW_HEIGHT / numRows;  // e.g., 600 pixels per row
 
 // GLFW error callback
 void glfw_error_callback(int error, const char* description) {
@@ -192,8 +196,12 @@ int main() {
     // --------------- Run Simulation & Plot--------------------
 
     // Compute the scale factor so that the 4 grids fits the window.
-    float viewWidth = WINDOW_WIDTH / 2.0f;
-    float renderScaleFactor = viewWidth / total_size;
+    float viewWidth = WINDOW_WIDTH / 3.0f;
+    //float renderScaleFactor = viewWidth / total_size;
+
+
+
+    float renderScaleFactor = (float)colWidth / total_size;
     //float renderScaleFactor = float(WINDOW_WIDTH) / (total_size);
 
     std::mutex simMutex;
@@ -221,9 +229,9 @@ int main() {
             }
             if (done) simulationEnded = true;
             auto now = std::chrono::steady_clock::now();
-            auto renderElapsed = std::chrono::duration_cast<std::chrono::microseconds>(now - lastRenderTime);
+            auto renderElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRenderTime);
 
-            if (renderElapsed > std::chrono::microseconds(500)) {
+            if (renderElapsed > std::chrono::milliseconds(50)) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 //std::this_thread::sleep_for(std::chrono::nanoseconds(500));
                 lastRenderTime = std::chrono::steady_clock::now();
@@ -244,11 +252,11 @@ int main() {
 
             
             // Left Top: True occupancy grid with robots.
-            glViewport(0, WINDOW_HEIGHT / 2, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+            glViewport(0, rowHeight, colWidth, rowHeight);
             glMatrixMode(GL_PROJECTION);
             glPushMatrix();
             glLoadIdentity();
-            glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+            glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
             glMatrixMode(GL_MODELVIEW);
             glPushMatrix();
             glLoadIdentity();
@@ -260,11 +268,11 @@ int main() {
             glPopMatrix();
 
             // Left Bottom: True heat map.
-            glViewport(0, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+            glViewport(0, 0, colWidth, rowHeight);
             glMatrixMode(GL_PROJECTION);
             glPushMatrix();
             glLoadIdentity();
-            glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+            glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
             glMatrixMode(GL_MODELVIEW);
             glPushMatrix();
             glLoadIdentity();
@@ -277,11 +285,11 @@ int main() {
 
 
             // Right Top: Discovered occupancy grid with robots (lidar view).
-            glViewport(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+            glViewport(colWidth, rowHeight, colWidth, rowHeight);
             glMatrixMode(GL_PROJECTION);
             glPushMatrix();
             glLoadIdentity();
-            glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+            glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
             glMatrixMode(GL_MODELVIEW);
             glPushMatrix();
             glLoadIdentity();
@@ -293,7 +301,7 @@ int main() {
             glPopMatrix();
 
             // Right Bottom: Discovered heat map from the robots' heat sensor.
-            glViewport(WINDOW_WIDTH / 2, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+            glViewport(colWidth, 0, colWidth, rowHeight);
             glMatrixMode(GL_PROJECTION);
             glPushMatrix();
             glLoadIdentity();
@@ -302,6 +310,22 @@ int main() {
             glPushMatrix();
             glLoadIdentity();
             renderDiscoveredHeatMap(simulation, renderScaleFactor);
+            renderRobots(simulation, renderScaleFactor);
+            renderVineRobot(simulation, renderScaleFactor);
+            glPopMatrix();
+            glMatrixMode(GL_PROJECTION);
+            glPopMatrix();
+
+            //heat map
+            glViewport(2 * colWidth, 0, colWidth, rowHeight);
+            glMatrixMode(GL_PROJECTION);
+            glPushMatrix();
+            glLoadIdentity();
+            glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+            glMatrixMode(GL_MODELVIEW);
+            glPushMatrix();
+            glLoadIdentity();
+            renderInterpolatedHeatMap(simulation, renderScaleFactor); // New function (see below)
             renderRobots(simulation, renderScaleFactor);
             renderVineRobot(simulation, renderScaleFactor);
             glPopMatrix();
@@ -378,11 +402,11 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT);
 
         // You can reuse your rendering functions to show the final, frozen state.
-        glViewport(0, WINDOW_HEIGHT / 2, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+        glViewport(0, rowHeight, colWidth, rowHeight);
         glMatrixMode(GL_PROJECTION);
         glPushMatrix();
         glLoadIdentity();
-        glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+        glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW);
         glPushMatrix();
         glLoadIdentity();
@@ -394,11 +418,11 @@ int main() {
         glPopMatrix();
 
         // Left Bottom: True heat map.
-        glViewport(0, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+        glViewport(0, 0, colWidth, rowHeight);
         glMatrixMode(GL_PROJECTION);
         glPushMatrix();
         glLoadIdentity();
-        glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+        glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW);
         glPushMatrix();
         glLoadIdentity();
@@ -414,11 +438,11 @@ int main() {
         // --------------------
 
         // Right Top: Discovered occupancy grid with robots (lidar view).
-        glViewport(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+        glViewport(colWidth, rowHeight, colWidth, rowHeight);
         glMatrixMode(GL_PROJECTION);
         glPushMatrix();
         glLoadIdentity();
-        glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+        glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW);
         glPushMatrix();
         glLoadIdentity();
@@ -430,15 +454,31 @@ int main() {
         glPopMatrix();
 
         // Right Bottom: Discovered heat map from the robots' heat sensor.
-        glViewport(WINDOW_WIDTH / 2, 0, WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2);
+        glViewport(colWidth, 0, colWidth, rowHeight);
         glMatrixMode(GL_PROJECTION);
         glPushMatrix();
         glLoadIdentity();
-        glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+        glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
         glMatrixMode(GL_MODELVIEW);
         glPushMatrix();
         glLoadIdentity();
         renderDiscoveredHeatMap(simulation, renderScaleFactor);
+        renderRobots(simulation, renderScaleFactor);
+        renderVineRobot(simulation, renderScaleFactor);
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+
+        // heat map
+        glViewport(2 * colWidth, 0, colWidth, rowHeight);
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+        renderInterpolatedHeatMap(simulation, renderScaleFactor); // New function (see below)
         renderRobots(simulation, renderScaleFactor);
         renderVineRobot(simulation, renderScaleFactor);
         glPopMatrix();

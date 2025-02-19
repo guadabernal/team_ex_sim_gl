@@ -2,6 +2,8 @@
 #include <vector>
 #include <utility>
 #include <cmath>
+#include <tuple>
+
 constexpr float PI = 3.14159265f;
 
 struct RescueRobot {
@@ -22,7 +24,7 @@ struct RescueRobot {
     bool rotating = false;     // Indicates if the robot is trying to rotate in place
 
     int id;
-
+    
     void measure(const std::vector<std::vector<int>>& trueOccupancy, std::vector<std::vector<int>>& unknownOccupancy, std::vector<std::vector<int>>& foundBy, 
         const std::vector<std::vector<float>>& trueHeat, std::vector<std::vector<float>>& knownHeat, float cellSize, float currentTime)
     {
@@ -452,15 +454,12 @@ struct VineRobot {
     }
 };
 
-
-
-
-
 struct Grid {
     float scale_m;  // Size of each cell in meters
     std::vector<std::vector<float>> co2;
     std::vector<std::vector<float>> heat;
     std::vector<std::vector<int>> ground_type;
+    std::vector<std::vector<float>> interpolatedHeat;
     std::vector<std::vector<float>> incline;
     std::vector<std::vector<int>> occupancy;
     std::vector<std::vector<int>> foundBy;
@@ -469,6 +468,7 @@ struct Grid {
     Grid(int rows, int cols, float scale_m)
         : co2(rows, std::vector<float>(cols, 0.0f)),
         heat(rows, std::vector<float>(cols, 0.0f)),
+        interpolatedHeat(rows, std::vector<float>(cols, 0.0f)),
         ground_type(rows, std::vector<int>(cols, 0)),
         incline(rows, std::vector<float>(cols, 0.0f)),
         occupancy(rows, std::vector<int>(cols, -1)),
@@ -477,11 +477,74 @@ struct Grid {
     {}
 };
 
+inline void updateInterpolatedHeatMap(Grid& grid) {
+    int rows = grid.heat.size();
+    if (rows == 0) return;
+    int cols = grid.heat[0].size();
 
-inline void heatmapUpdate(const std::vector<std::vector<int>>& occupancy,
-    std::vector<std::vector<float>>& heat,
-    float dt,
-    float dx)
+    
+    // Collect all measured points (i, j, value) from grid.heat.
+    std::vector<std::tuple<int, int, float>> measured;
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            if (grid.heat[i][j] != -1) {
+                measured.push_back(std::make_tuple(i, j, grid.heat[i][j]));
+            }
+        }
+    }
+    // If no measured points exist, just copy the heat grid.
+    if (measured.empty()) {
+        grid.interpolatedHeat = grid.heat;
+        return;
+    }
+
+    // Use inverse distance weighting to interpolate every cell.
+    // p is the power parameter (commonly 2).
+    float p = 2.0f;
+    // Resize (or reinitialize) the interpolatedHeat grid.
+    grid.interpolatedHeat.resize(rows, std::vector<float>(cols, 0.0f));
+
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            // If a cell is measured, copy its value directly.
+            if (grid.heat[i][j] != -1) {
+                grid.interpolatedHeat[i][j] = grid.heat[i][j];
+            }
+            else {
+                float numerator = 0.0f;
+                float denominator = 0.0f;
+                // Loop through all measured points.
+                for (const auto& tup : measured) {
+                    int mi, mj;
+                    float val;
+                    std::tie(mi, mj, val) = tup;
+                    // Compute Euclidean distance in grid units.
+                    float d = std::sqrt((i - mi) * (i - mi) + (j - mj) * (j - mj));
+                    // Avoid division by zero: if the distance is extremely small, use the measured value.
+                    if (d < 0.0001f) {
+                        numerator = val;
+                        denominator = 1.0f;
+                        break;
+                    }
+                    float weight = 1.0f / std::pow(d, p);
+                    numerator += weight * val;
+                    denominator += weight;
+                }
+                grid.interpolatedHeat[i][j] = (denominator != 0.0f) ? (numerator / denominator) : 0.0f;
+            }
+        }
+    }
+    // Force a measured value at physical (5,5).
+    // Assuming grid.scale_m is the cell size (e.g., 0.05m), then:
+    int centerIdx = static_cast<int>(5.0f / grid.scale_m);
+    if (centerIdx < rows && centerIdx < cols) {
+        grid.interpolatedHeat[centerIdx][centerIdx] = 500.0f;
+    }
+
+}
+
+
+inline void heatmapUpdate(const std::vector<std::vector<int>>& occupancy,std::vector<std::vector<float>>& heat,float dt,float dx)
 {
     int rows = heat.size();
     if (rows == 0) return;
@@ -551,12 +614,7 @@ inline void heatmapUpdate(const std::vector<std::vector<int>>& occupancy,
     }
     heat = mixedHeat;
 }
-
-inline void injectHeatSources(std::vector<std::vector<float>>& heat,
-    int numOfPpl,
-    const std::vector<std::pair<float, float>>& sourcePositions,
-    float personTemp,
-    float scale)
+inline void injectHeatSources(std::vector<std::vector<float>>& heat, int numOfPpl, const std::vector<std::pair<float, float>>& sourcePositions, float personTemp, float scale)
 {
     int rows = heat.size();
     if (rows == 0) return;
@@ -610,6 +668,7 @@ public:
     std::vector<std::pair<float, float>> sourcePositions;
 
     int nextRrSpawnIndex;
+    int updateCounter = 0;
 
     Simulation(int grid_rows, int grid_cols, float scale_m, int n_robots, int robot_sensor_count, float max_time, float dt = 0.01f, int numOfPpl = 0,
         const std::vector<std::pair<float, float>>& sourcePositions = std::vector<std::pair<float, float>>())
@@ -710,6 +769,13 @@ public:
                                grid.heat,                 // discovered heat map
                                t);                        // current simulation time
                 }
+                updateCounter++;
+                // Only update the interpolated heat map every 50 iterations.
+                if (updateCounter % 50 == 0) {
+                    updateInterpolatedHeatMap(grid);
+                    std::cout << "updated heat map" << std::endl;
+                }
+
             }
         }
 

@@ -169,25 +169,61 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
         }
     }
 
-    // Overlay walls from the occupancy grid.
     int occRows = simulation.known_grid.occupancy.size();
     int occCols = simulation.known_grid.occupancy[0].size();
     for (int y = 0; y < occRows; y++) {
         for (int x = 0; x < occCols; x++) {
-            if (simulation.known_grid.occupancy[y][x] == 0) { // Wall
+            int cell = simulation.known_grid.occupancy[y][x];
+            if (cell == 0) { // Wall
                 glColor3f(0.0f, 0.0f, 0.0f);
-                float left = x * cellSize;
-                float top = y * cellSize;
-                float right = left + cellSize;
-                float bottom = top + cellSize;
-                glBegin(GL_QUADS);
-                glVertex2f(left, top);
-                glVertex2f(right, top);
-                glVertex2f(right, bottom);
-                glVertex2f(left, bottom);
-                glEnd();
             }
+            else if (cell == 2) { // Hole
+                glColor3f(0.0f, 0.0f, 0.5f);
+            }
+            else {
+                continue; // No overlay for ground (value 1)
+            }
+            float left = x * cellSize;
+            float top = y * cellSize;
+            float right = left + cellSize;
+            float bottom = top + cellSize;
+            glBegin(GL_QUADS);
+            glVertex2f(left, top);
+            glVertex2f(right, top);
+            glVertex2f(right, bottom);
+            glVertex2f(left, bottom);
+            glEnd();
         }
+    }
+    float cellSizePixels = simulation.known_grid.scale_m * scaleFactor;
+    for (const auto& pos : simulation.sourcePositions) {
+        // 'pos' is in grid coordinates, so add 0.5 to center in the cell.
+        float centerX = (pos.first + 0.5f) * cellSizePixels;
+        float centerY = (pos.second + 0.5f) * cellSizePixels;
+        // Convert the person's physical radius (in meters) to screen pixels.
+        float radiusScreen = 0.15f * scaleFactor;
+
+        // Draw the circle outline around the person.
+        glColor3f(0.0f, 0.0f, 0.0f); // Black
+        glLineWidth(2.0f);
+        const int numSegments = 50;
+        glBegin(GL_LINE_LOOP);
+        for (int i = 0; i < numSegments; i++) {
+            float angle = 2.0f * 3.14159265f * i / numSegments;
+            float x = centerX + radiusScreen * std::cos(angle);
+            float y = centerY + radiusScreen * std::sin(angle);
+            glVertex2f(x, y);
+        }
+        glEnd();
+
+        // Draw an X at the center of the heat source.
+        float halfXSize = radiusScreen * 0.5f;
+        glBegin(GL_LINES);
+        glVertex2f(centerX - halfXSize, centerY - halfXSize);
+        glVertex2f(centerX + halfXSize, centerY + halfXSize);
+        glVertex2f(centerX - halfXSize, centerY + halfXSize);
+        glVertex2f(centerX + halfXSize, centerY - halfXSize);
+        glEnd();
     }
 }
 
@@ -295,3 +331,66 @@ inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
     }
     glEnd();
 }
+
+inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleFactor) {
+    int rows = simulation.grid.interpolatedHeat.size();
+    if (rows == 0) return;
+    int cols = simulation.grid.interpolatedHeat[0].size();
+    float cellSize = simulation.grid.scale_m * scaleFactor;
+
+    // Use the same fixed temperature range as in renderHeatMap.
+    const float baseTemp = 20.0f;
+    const float maxTemp = 37.0f;
+
+    // Draw the interpolated heat map (blue-to-red scale).
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            float temp = simulation.grid.interpolatedHeat[i][j];
+            float norm = (temp - baseTemp) / (maxTemp - baseTemp);
+            if (norm < 0.0f) norm = 0.0f;
+            if (norm > 1.0f) norm = 1.0f;
+            // Linear interpolation: light blue (0.8, 0.8, 1.0) at baseTemp to red (1.6, 0.0, 0.0) at maxTemp.
+            float r = 0.8f + 0.8f * norm;
+            float g = 0.8f - 0.8f * norm;
+            float b = 1.0f - norm;
+            glColor3f(r, g, b);
+
+            float left = j * cellSize;
+            float top = i * cellSize;
+            float right = left + cellSize;
+            float bottom = top + cellSize;
+            glBegin(GL_QUADS);
+            glVertex2f(left, top);
+            glVertex2f(right, top);
+            glVertex2f(right, bottom);
+            glVertex2f(left, bottom);
+            glEnd();
+        }
+    }
+
+    // Overlay walls (and holes, if desired) from the discovered occupancy grid.
+    int occRows = simulation.grid.occupancy.size();
+    int occCols = simulation.grid.occupancy[0].size();
+    for (int y = 0; y < occRows; y++) {
+        for (int x = 0; x < occCols; x++) {
+            if (simulation.grid.occupancy[y][x] == 0) { // Wall
+                glColor3f(0.0f, 0.0f, 0.0f);
+            } else if (simulation.grid.occupancy[y][x] == 2) { // Optional: Hole overlay
+                glColor3f(0.0f, 0.0f, 0.5f);
+            } else {
+                continue;
+            }
+            float left = x * cellSize;
+            float top = y * cellSize;
+            float right = left + cellSize;
+            float bottom = top + cellSize;
+            glBegin(GL_QUADS);
+            glVertex2f(left, top);
+            glVertex2f(right, top);
+            glVertex2f(right, bottom);
+            glVertex2f(left, bottom);
+            glEnd();
+        }
+    }
+}
+
