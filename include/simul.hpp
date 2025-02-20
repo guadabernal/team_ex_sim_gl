@@ -378,30 +378,43 @@ struct VineRobot {
 
     // This sensor_lidar function mimics the RescueRobot's version
     // but uses the tip as the sensor location.
+    // In simul.hpp inside the VineRobot struct, replace the sensor_lidar function with:
     std::vector<float> sensor_lidar(const std::vector<std::vector<int>>& occupancy, float cellSize) {
         const float max_range = 2.0f;
         float step = cellSize * 0.5f;
-        float distance = 0.0f;
+        std::vector<float> measurements(3, max_range);
         auto sensorPos = tip();
-        while (distance < max_range) {
-            float rayX = sensorPos.first + distance * std::cos(theta);
-            float rayY = sensorPos.second + distance * std::sin(theta);
-            int col = static_cast<int>(rayX / cellSize);
-            int row = static_cast<int>(rayY / cellSize);
-            if (row < 0 || row >= occupancy.size() ||
-                col < 0 || col >= occupancy[0].size())
-                break;
-            // Only treat walls (occupancy == 0) as obstacles.
-            if (occupancy[row][col] == 0) {
-                return { distance };
+        // Define the three angle offsets in radians (-15°, 0°, 15°)
+        float angleOffsets[3] = { -15.0f * (PI / 180.0f), 0.0f, 15.0f * (PI / 180.0f) };
+
+        for (int i = 0; i < 3; i++) {
+            float sensorAngle = theta + angleOffsets[i];
+            float distance = 0.0f;
+            while (distance < max_range) {
+                float rayX = sensorPos.first + distance * std::cos(sensorAngle);
+                float rayY = sensorPos.second + distance * std::sin(sensorAngle);
+                int col = static_cast<int>(rayX / cellSize);
+                int row = static_cast<int>(rayY / cellSize);
+                if (row < 0 || row >= occupancy.size() ||
+                    col < 0 || col >= occupancy[0].size()) {
+                    break; // outside grid bounds
+                }
+                // Only treat walls (occupancy == 0) as obstacles.
+                if (occupancy[row][col] == 0) {
+                    measurements[i] = distance;
+                    break;
+                }
+                distance += step;
             }
-            distance += step;
+            // If no obstacle was encountered, set measurement to max_range.
+            if (distance >= max_range) {
+                measurements[i] = max_range;
+            }
         }
-        return { max_range };
+        return measurements;
     }
 
-    // The measure() function updates the unknown occupancy grid based on the lidar reading.
-    // It is analogous to the RescueRobot's measure(), using the tip sensor.
+
     void measure(const std::vector<std::vector<int>>& trueOccupancy,
         std::vector<std::vector<int>>& unknownOccupancy,
         std::vector<std::vector<int>>& foundBy,
@@ -412,46 +425,59 @@ struct VineRobot {
         const float defaultUpdateInterval = 0.1f;
         if (currentTime - tipSensorLastUpdate < defaultUpdateInterval)
             return;
-        // Get lidar measurement from the tip.
+
+        // Get three lidar measurements from the tip.
         std::vector<float> measurements = sensor_lidar(trueOccupancy, cellSize);
         if (measurements.empty())
             return;
-        float distance = measurements[0];
-        const float maxRange = 2.0f;
-        int stepsCount = static_cast<int>(distance / cellSize);
+
         auto sensorPos = tip();
-        // Update free cells along the ray.
-        for (int j = 0; j < stepsCount; j++) {
-            float rayX = sensorPos.first + (j * cellSize) * std::cos(theta);
-            float rayY = sensorPos.second + (j * cellSize) * std::sin(theta);
-            int col = static_cast<int>(rayX / cellSize);
-            int row = static_cast<int>(rayY / cellSize);
-            if (row >= 0 && row < unknownOccupancy.size() &&
-                col >= 0 && col < unknownOccupancy[0].size())
-            {
-                if (unknownOccupancy[row][col] == -1) {
-                    unknownOccupancy[row][col] = 1; // Mark as ground.
-                    foundBy[row][col] = -1;         // Use -1 to indicate vine robot.
+        const float maxRange = 2.0f;
+        // Define the three sensor angle offsets (in radians) relative to the vine robot's heading.
+        float angleOffsets[3] = { -15.0f * (PI / 180.0f), 0.0f, 15.0f * (PI / 180.0f) };
+
+        // Loop over each sensor measurement.
+        for (int i = 0; i < 3; i++) {
+            float sensorAngle = theta + angleOffsets[i];
+            float distance = measurements[i];
+            int stepsCount = static_cast<int>(distance / cellSize);
+
+            // Update free cells along the ray for this sensor.
+            for (int j = 0; j < stepsCount; j++) {
+                float rayX = sensorPos.first + (j * cellSize) * std::cos(sensorAngle);
+                float rayY = sensorPos.second + (j * cellSize) * std::sin(sensorAngle);
+                int col = static_cast<int>(rayX / cellSize);
+                int row = static_cast<int>(rayY / cellSize);
+                if (row >= 0 && row < unknownOccupancy.size() &&
+                    col >= 0 && col < unknownOccupancy[0].size())
+                {
+                    // Only update if the cell is still undiscovered.
+                    if (unknownOccupancy[row][col] == -1) {
+                        unknownOccupancy[row][col] = 1; // ground
+                        foundBy[row][col] = -2;         // mark as discovered by vine robot
+                    }
                 }
             }
-        }
-        // If a wall is detected, mark that cell as a wall.
-        if (distance < maxRange) {
-            float sensorX = sensorPos.first + distance * std::cos(theta);
-            float sensorY = sensorPos.second + distance * std::sin(theta);
-            int col = static_cast<int>(sensorX / cellSize);
-            int row = static_cast<int>(sensorY / cellSize);
-            if (row >= 0 && row < unknownOccupancy.size() &&
-                col >= 0 && col < unknownOccupancy[0].size())
-            {
-                if (unknownOccupancy[row][col] == -1) {
-                    unknownOccupancy[row][col] = 0; // Mark as wall.
-                    foundBy[row][col] = -1;
+            // If an obstacle was detected by this sensor, mark that cell as a wall.
+            if (distance < maxRange) {
+                float sensorX = sensorPos.first + distance * std::cos(sensorAngle);
+                float sensorY = sensorPos.second + distance * std::sin(sensorAngle);
+                int col = static_cast<int>(sensorX / cellSize);
+                int row = static_cast<int>(sensorY / cellSize);
+                if (row >= 0 && row < unknownOccupancy.size() &&
+                    col >= 0 && col < unknownOccupancy[0].size())
+                {
+                    if (unknownOccupancy[row][col] == -1) {
+                        unknownOccupancy[row][col] = 0; // wall
+                        foundBy[row][col] = -2;         // mark as discovered by vine robot
+                    }
                 }
             }
         }
         tipSensorLastUpdate = currentTime;
     }
+
+
 };
 
 struct Grid {
@@ -680,8 +706,8 @@ public:
         dt(dt),
         numOfPpl(numOfPpl),
         sourcePositions(sourcePositions),
-        rrActive(true),
-        vrActive(false),
+        rrActive(false),
+        vrActive(true),
         nextRrSpawnIndex(0)
     {}
 
@@ -773,7 +799,7 @@ public:
                 // Only update the interpolated heat map every 50 iterations.
                 if (updateCounter % 50 == 0) {
                     updateInterpolatedHeatMap(grid);
-                    std::cout << "updated heat map" << std::endl;
+                    //std::cout << "updated heat map" << std::endl;
                 }
 
             }

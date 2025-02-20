@@ -378,8 +378,19 @@ int main() {
         std::cout << "Robot " << robot.id << ": Run time = " << runtime << " sec, " << (robot.dead ? "Fell " : "Alive") << ", % area exp = " << percentExplored << "%" << std::endl;
     }
 
+    int vineCount = 0;
+    for (const auto& row : simulation.grid.foundBy) {
+        for (int cell : row) {
+            if (cell == -2)
+                vineCount++;
+        }
+    }
+    float vinePercent = (static_cast<float>(vineCount) / totalCells) * 100.0f;
+    std::cout << "Vine Robot discovered " << vinePercent << "% of the area." << std::endl;
+
+
     float totalCoveragePercent = (static_cast<float>(coveredCells) / totalCells) * 100.0f;
-    std::cout << "Total area coverage by all robots: " << totalCoveragePercent << "%" << std::endl;
+    std::cout << "Total area coverage by rescue robots: " << totalCoveragePercent << "%" << std::endl;
 
 
     // ----- Create a new ImGui context for the final window -----
