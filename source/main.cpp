@@ -13,6 +13,7 @@
 #include "gen_occupancy.hpp"
 #include "simul.hpp"
 #include "simul_render.hpp"
+#include "rescue_robot.hpp"
 #include <Windows.h>
 
 // Window size
@@ -27,70 +28,6 @@ int rowHeight = WINDOW_HEIGHT / numRows;  // e.g., 600 pixels per row
 void glfw_error_callback(int error, const char* description) {
     std::cerr << "GLFW Error (" << error << "): " << description << std::endl;
 }
-
-std::vector<RescueRobot> spawnRobots(Simulation& simulation, int nRobots, int sensorCount) {
-    std::vector<RescueRobot> robots;
-    robots.resize(nRobots);
-
-    int gridRows = simulation.known_grid.occupancy.size();
-    int gridCols = simulation.known_grid.occupancy[0].size();
-    float cellSize = simulation.known_grid.scale_m;
-
-    std::default_random_engine rng(std::random_device{}());
-    std::uniform_real_distribution<float> posXDist(0.0f, gridCols * cellSize);
-    std::uniform_real_distribution<float> posYDist(0.0f, gridRows * cellSize);
-    std::uniform_real_distribution<float> thetaDist(0.0f, 2 * PI);
-
-    float spawnPadding = 0.12f; // robot size as padding
-
-    for (int i = 0; i < robots.size(); i++) {
-        RescueRobot& robot = robots[i];
-        bool valid = false;
-        while (!valid) {
-            float candidateX = posXDist(rng);
-            float candidateY = posYDist(rng);
-
-            float left = candidateX - spawnPadding;
-            float right = candidateX + spawnPadding;
-            float top = candidateY - spawnPadding;
-            float bottom = candidateY + spawnPadding;
-
-            int col_min = static_cast<int>(std::floor(left / cellSize));
-            int col_max = static_cast<int>(std::floor(right / cellSize));
-            int row_min = static_cast<int>(std::floor(top / cellSize));
-            int row_max = static_cast<int>(std::floor(bottom / cellSize));
-
-            if (col_min < 0) col_min = 0;
-            if (row_min < 0) row_min = 0;
-            if (col_max >= gridCols) col_max = gridCols - 1;
-            if (row_max >= gridRows) row_max = gridRows - 1;
-
-            valid = true;
-            for (int row = row_min; row <= row_max && valid; ++row) {
-                for (int col = col_min; col <= col_max && valid; ++col) {
-                    if (simulation.known_grid.occupancy[row][col] != 1) {
-                        valid = false;
-                    }
-                }
-            }
-            if (valid) {
-                robot.x = candidateX;
-                robot.y = candidateY;
-            }
-        }
-        robot.theta = thetaDist(rng);
-        robot.v = 0.2f;
-        robot.battery = 100.0f;
-        robot.time_drop = 0;
-        robot.sensors.resize(sensorCount, 0);
-        robot.size = 0.12f;
-        robot.id = i;
-        robot.sensorLastUpdateTimes.resize(sensorCount, 0.0f);
-    }
-    return robots;
-}
-
-
 
 int main() {
     // Initialize GLFW
@@ -120,17 +57,14 @@ int main() {
 
     // --------------- Create Simulation consts --------------------
 
-    float cell_size = 0.05f; // meters
+    float cellSize = 0.05f; // meters
     float total_size = 10;    // meters
-    int grid_size = total_size / cell_size;
+    int grid_size = total_size / cellSize;
     int nRobots = 10;         // number of robots
     int sensorCount = 5;      // sensor count per robot
-    
-    
     float muHoleSize = 0.5;
     float sigmaHoleSize = 0.2;
     int numHoles = 8;
-
     int numOfPpl = 2;         // number of heat sources
 
 
@@ -142,52 +76,18 @@ int main() {
 
 
     // --------------- Create Simulation instance --------------------
-    Simulation simulation(grid_size, grid_size, cell_size, nRobots, sensorCount, 30, 0.01f, numOfPpl, personPositions);
+    Simulation simulation(grid_size, grid_size, cellSize, nRobots, sensorCount, 30, 0.01f, numOfPpl, personPositions);
 
     // --------------- Fill Simulation Maps and Robots --------------------
 
-    generateOfficeMap(simulation.known_grid.occupancy, cell_size, 0.15f, 0.9f); // first place walls
-    addHoles(simulation.known_grid.occupancy, cell_size, muHoleSize, sigmaHoleSize, numHoles); // second add holes
+    generateOfficeMap(simulation.known_grid.occupancy, cellSize, 0.15f, 0.9f); // first place walls
+    addHoles(simulation.known_grid.occupancy, cellSize, muHoleSize, sigmaHoleSize, numHoles); // second add holes
     simulation.initializeHeatMap(10.0f, 20.0f);
 
     //simulation.rr = spawnRobots(simulation, nRobots, sensorCount);
     simulation.rr.clear();
-    //for (int i = 0; i < 10; i++) {
-    //    RescueRobot robot;
-    //    // The x,y will be updated when the robot spawns.
-    //    robot.x = 0;
-    //    robot.y = 0;
-    //    robot.theta = 0.0f;  // Facing right.
-    //    robot.v = 0.2f;
-    //    robot.size = 0.12f;
-    //    robot.id = i;
-    //    robot.battery = 100.0f;
-    //    robot.time_drop = 0;
-    //    int sensorCount = 5;
-    //    robot.sensors.resize(sensorCount, 0);
-    //    robot.sensorLastUpdateTimes.resize(sensorCount, 0.0f);
-    //    // Set spawnTime—for example, spawn one every 5 seconds.
-    //    robot.spawnTime = 3.0f * i;
-    //    robot.spawned = false;
-    //    simulation.rr.push_back(robot);
-    //}
     for (int i = 0; i < 10; i++) {
-        RescueRobot robot;
-        // The x,y will be updated when the robot spawns.
-        robot.x = 1.5;
-        robot.y = 1.5;
-        robot.theta = 0.0f;  // Facing right.
-        robot.v = 0.2f;
-        robot.size = 0.12f;
-        robot.id = i;
-        robot.battery = 100.0f;
-        robot.time_drop = 0;
-        int sensorCount = 5;
-        robot.sensors.resize(sensorCount, 0);
-        robot.sensorLastUpdateTimes.resize(sensorCount, 0.0f);
-        // Set spawnTime—for example, spawn one every 5 seconds.
-        robot.spawnTime = 3.0f * i;
-        robot.spawned = false;
+        RescueRobot robot(1.5f, 1.5f, 0.0f, 3.0f * i, cellSize, true, true);
         simulation.rr.push_back(robot);
     }
     simulation.nextRrSpawnIndex = 0;
@@ -232,10 +132,11 @@ int main() {
             auto renderElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRenderTime);
 
             if (renderElapsed > std::chrono::milliseconds(50)) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 //std::this_thread::sleep_for(std::chrono::nanoseconds(500));
                 lastRenderTime = std::chrono::steady_clock::now();
             }
+            std::this_thread::sleep_for(std::chrono::nanoseconds(100));
         }
         running.store(false);
         });
@@ -364,7 +265,7 @@ int main() {
     for (auto& robot : simulation.rr) {
         
         // Determine run time: if the robot died, use its time_drop; otherwise, the current simulation time.
-        float runtime = robot.dead ? (robot.time_death - robot.time_drop) : (simulation.t - robot.time_drop);
+        float runtime = robot.dead ? (robot.timeDeath - robot.spawnTime) : (simulation.t - robot.spawnTime);
         
         int discoveredCount = 0;
         for (const auto& row : simulation.grid.foundBy) {
@@ -497,22 +398,22 @@ int main() {
         glPopMatrix();
 
         // Optionally, use ImGui to display sensor data or additional info.
-        ImGui_ImplOpenGL2_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
+        //ImGui_ImplOpenGL2_NewFrame();
+        //ImGui_ImplGlfw_NewFrame();
+        //ImGui::NewFrame();
 
-        ImGui::Begin("Final Sensor Data");
-        for (const auto& robot : simulation.rr) {
-            ImGui::Text("Robot %d:", robot.id);
-            for (size_t i = 0; i < robot.sensors.size(); ++i) {
-                ImGui::Text("Sensor %zu: %f", i, robot.sensors[i]);
-                ImGui::SameLine();
-            }
-            ImGui::Separator();
-        }
+        //ImGui::Begin("Final Sensor Data");
+        //for (const auto& robot : simulation.rr) {
+        //    ImGui::Text("Robot %d:", robot.id);
+        //    for (size_t i = 0; i < robot.sensors.size(); ++i) {
+        //        ImGui::Text("Sensor %zu: %f", i, robot.sensors[i]);
+        //        ImGui::SameLine();
+        //    }
+        //    ImGui::Separator();
+        //}
 
-        ImGui::End();
-        ImGui::Render();
+        //ImGui::End();
+        //ImGui::Render();
 
         glfwSwapBuffers(finalWindow);
     }

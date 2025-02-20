@@ -3,6 +3,7 @@
 #include <GLFW/glfw3.h>
 #include <cmath>
 #include <vector>
+#include <vine_robot.hpp>
 
 inline void renderRobots(const Simulation& simulation, float scaleFactor) {
     for (const auto& robot : simulation.rr) {
@@ -57,7 +58,7 @@ inline void renderRobots(const Simulation& simulation, float scaleFactor) {
 inline void renderGrid(const Simulation& simulation, float scaleFactor) {
     int gridRows = simulation.known_grid.occupancy.size();
     int gridCols = simulation.known_grid.occupancy[0].size();
-    float cellSize = simulation.known_grid.scale_m * scaleFactor;
+    float cellSize = simulation.known_grid.cellSize * scaleFactor;
     for (int y = 0; y < gridRows; ++y) {
         for (int x = 0; x < gridCols; ++x) {
             int cell = simulation.known_grid.occupancy[y][x];
@@ -92,7 +93,7 @@ inline void renderGrid(const Simulation& simulation, float scaleFactor) {
 inline void renderMeasurementGrid(const Simulation& simulation, float scaleFactor) {
     int gridRows = simulation.grid.occupancy.size();
     int gridCols = simulation.grid.occupancy[0].size();
-    float cellSize = simulation.known_grid.scale_m * scaleFactor;
+    float cellSize = simulation.known_grid.cellSize * scaleFactor;
     for (int y = 0; y < gridRows; ++y) {
         for (int x = 0; x < gridCols; ++x) {
             int cell = simulation.grid.occupancy[y][x];
@@ -138,7 +139,7 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
     int rows = simulation.known_grid.heat.size();
     if (rows == 0) return;
     int cols = simulation.known_grid.heat[0].size();
-    float cellSize = simulation.known_grid.scale_m * scaleFactor;
+    float cellSize = simulation.known_grid.cellSize * scaleFactor;
 
     // Define the temperature range.
     const float baseTemp = 20.0f;  // Light blue at 20°C.
@@ -195,7 +196,7 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
             glEnd();
         }
     }
-    float cellSizePixels = simulation.known_grid.scale_m * scaleFactor;
+    float cellSizePixels = simulation.known_grid.cellSize * scaleFactor;
     for (const auto& pos : simulation.sourcePositions) {
         // 'pos' is in grid coordinates, so add 0.5 to center in the cell.
         float centerX = (pos.first + 0.5f) * cellSizePixels;
@@ -231,7 +232,7 @@ inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFac
     int rows = simulation.grid.heat.size();
     if (rows == 0) return;
     int cols = simulation.grid.heat[0].size();
-    float cellSize = simulation.known_grid.scale_m * scaleFactor;
+    float cellSize = simulation.known_grid.cellSize * scaleFactor;
 
     // Temperature parameters.
     const float baseTemp = 20.0f;  // Low measured temperature (for mapping)
@@ -336,7 +337,7 @@ inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleF
     int rows = simulation.grid.interpolatedHeat.size();
     if (rows == 0) return;
     int cols = simulation.grid.interpolatedHeat[0].size();
-    float cellSize = simulation.grid.scale_m * scaleFactor;
+    float cellSize = simulation.grid.cellSize * scaleFactor;
 
     // Use the same fixed temperature range as in renderHeatMap.
     const float baseTemp = 20.0f;

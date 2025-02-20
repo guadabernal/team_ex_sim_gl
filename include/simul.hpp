@@ -3,485 +3,11 @@
 #include <utility>
 #include <cmath>
 #include <tuple>
-
-constexpr float PI = 3.14159265f;
-
-struct RescueRobot {
-    float x, y, theta;
-    float size;
-    float v;
-    float battery;
-    int time_drop;
-    float time_death = 0.0f;
-
-    bool spawned = false;      // Has this robot been spawned?
-    float spawnTime = 0.0f;
-
-    std::vector<int> sensors;  // Sensor readings
-    std::vector<float> sensorLastUpdateTimes;
-
-    bool dead = false;         // Indicates if the robot fell in a hole
-    bool rotating = false;     // Indicates if the robot is trying to rotate in place
-
-    int id;
-    
-    void measure(const std::vector<std::vector<int>>& trueOccupancy, std::vector<std::vector<int>>& unknownOccupancy, std::vector<std::vector<int>>& foundBy, 
-        const std::vector<std::vector<float>>& trueHeat, std::vector<std::vector<float>>& knownHeat, float cellSize, float currentTime)
-    {
-        // ----- Distance Sensor Measurement (unchanged) -----
-        const float defaultUpdateInterval = 0.1f;
-        for (size_t i = 0; i < sensors.size(); ++i) {
-            if (currentTime - sensorLastUpdateTimes[i] < defaultUpdateInterval)
-                continue; // Not time yet for this sensor.
-            std::vector<float> measurements = sensor_lidar(trueOccupancy, cellSize);
-            if (measurements.empty())
-                continue;
-            float distance = measurements[0];
-            const float maxRange = 4.0f;
-            int steps = static_cast<int>(distance / cellSize);
-            for (int j = 0; j < steps; j++) {
-                float rayX = x + (j * cellSize) * std::cos(theta);
-                float rayY = y + (j * cellSize) * std::sin(theta);
-                int col = static_cast<int>(rayX / cellSize);
-                int row = static_cast<int>(rayY / cellSize);
-                if (row >= 0 && row < unknownOccupancy.size() &&
-                    col >= 0 && col < unknownOccupancy[0].size()) {
-                    if (unknownOccupancy[row][col] == -1) { // Only update if not discovered yet.
-                        unknownOccupancy[row][col] = 1; // ground
-                        foundBy[row][col] = id;
-                    }
-                }
-            }
-            if (distance < maxRange) {
-                float sensorX = x + distance * std::cos(theta);
-                float sensorY = y + distance * std::sin(theta);
-                int col = static_cast<int>(sensorX / cellSize);
-                int row = static_cast<int>(sensorY / cellSize);
-                if (row >= 0 && row < unknownOccupancy.size() &&
-                    col >= 0 && col < unknownOccupancy[0].size()) {
-                    if (unknownOccupancy[row][col] == -1) {
-                        unknownOccupancy[row][col] = 0; // wall
-                        foundBy[row][col] = id;
-                    }
-                }
-            }
-            sensorLastUpdateTimes[i] = currentTime;
-        }
-
-        // ----- Heat Sensor Measurement -----
-        // Update only the cell where the robot is located with the direct temperature reading.
-        int col = static_cast<int>(x / cellSize);
-        int row = static_cast<int>(y / cellSize);
-        if (row >= 0 && row < knownHeat.size() &&
-            col >= 0 && col < knownHeat[0].size()) {
-            knownHeat[row][col] = sensor_heat(trueHeat, cellSize);
-        }
-    }
-
-
-    int checkCollision(const std::vector<std::vector<int>>& occupancy, float cellSize, const std::vector<RescueRobot>& robots) {
-        float halfSize = size / 2.0f;
-        float left = x - halfSize;
-        float right = x + halfSize;
-        float top = y - halfSize;
-        float bottom = y + halfSize;
-
-        // Convert world coordinates to grid indices.
-        int col_min = static_cast<int>(std::floor(left / cellSize));
-        int col_max = static_cast<int>(std::floor(right / cellSize));
-        int row_min = static_cast<int>(std::floor(top / cellSize));
-        int row_max = static_cast<int>(std::floor(bottom / cellSize));
-
-        int rows = occupancy.size();
-        int cols = occupancy[0].size();
-        if (col_min < 0) col_min = 0;
-        if (row_min < 0) row_min = 0;
-        if (col_max >= cols) col_max = cols - 1;
-        if (row_max >= rows) row_max = rows - 1;
-
-        bool wallFound = false;
-        bool holeFound = false;
-        // Check occupancy grid.
-        for (int row = row_min; row <= row_max; ++row) {
-            for (int col = col_min; col <= col_max; ++col) {
-                int cell = occupancy[row][col];
-                if (cell != 1) { // Not ground.
-                    if (cell == 0)
-                        wallFound = true;
-                    else if (cell == 2)
-                        holeFound = true;
-                }
-            }
-        }
-        if (wallFound) return 1;
-        if (holeFound) return 2;
-
-        // Check collision with other robots.
-        for (const auto& other : robots) {
-            // Skip self.
-            if (&other == this || !other.spawned) continue;
-            float otherHalf = other.size / 2.0f;
-            float otherLeft = other.x - otherHalf;
-            float otherRight = other.x + otherHalf;
-            float otherTop = other.y - otherHalf;
-            float otherBottom = other.y + otherHalf;
-            // Check for overlap using axis-aligned bounding box (AABB) collision.
-            bool overlapX = (x - halfSize < otherRight) && (x + halfSize > otherLeft);
-            bool overlapY = (y - halfSize < otherBottom) && (y + halfSize > otherTop);
-            if (overlapX && overlapY) return 1;
-        }
-        return 0;
-    }
-
-    void move(float dt, const std::vector<std::vector<int>>& occupancy, float cellSize, const std::vector<RescueRobot>& robots,
-        const std::vector<std::vector<int>>& trueOccupancy, std::vector<std::vector<int>>& unknownOccupancy, std::vector<std::vector<int>>& foundBy,
-        const std::vector<std::vector<float>>& trueHeat, std::vector<std::vector<float>>& knownHeat, float currentTime)
-    {
-        if (currentTime < time_drop || dead) return;
-        
-        float prevX = x, prevY = y;
-
-        if (rotating) {
-            const float ROTATE_DELTA = 0.1f;
-            theta += ROTATE_DELTA;
-        }
-        else {
-            static std::default_random_engine rng(std::random_device{}());
-            static std::uniform_real_distribution<float> angleDist(-0.1f, 0.1f);
-            theta += angleDist(rng);
-        }
-
-        float candidateX = x + v * std::cos(theta) * dt;
-        float candidateY = y + v * std::sin(theta) * dt;
-        x = candidateX;
-        y = candidateY;
-
-        int collision = checkCollision(occupancy, cellSize, robots);
-
-        if (collision == 0) {
-            rotating = false;
-        }
-        else if (collision == 1) {
-            x = prevX;
-            y = prevY;
-            rotating = true;
-            return;
-        }
-        else if (collision == 2) {
-            v = 0;
-            dead = true;
-            time_death = currentTime;  // Record the actual death time.
-            return;
-        }
-
-        // Update the discovered occupancy grid.
-        measure(occupancy, unknownOccupancy, foundBy, trueHeat, knownHeat, cellSize, currentTime);
-
-    }
-
-    
-    // --- Sensor Reading Functions Below -----
-    float sensor_heat(const std::vector<std::vector<float>>& trueHeat, float cellSize) {
-        int col = static_cast<int>(x / cellSize);
-        int row = static_cast<int>(y / cellSize);
-        // If the robot is out of bounds, return the base temperature (e.g., 20°C).
-        if (row < 0 || row >= trueHeat.size() || col < 0 || col >= trueHeat[0].size())
-            return 20.0f;
-        float temp = trueHeat[row][col];
-        // Clamp the temperature to a realistic range.
-        if (temp < -40.0f)
-            temp = -40.0f;
-        if (temp > 125.0f)
-            temp = 125.0f;
-        return temp;
-    }
-
-    std::vector<float> sensor_lidar(const std::vector<std::vector<int>>& occupancy, float cellSize) {
-        const float max_range = 2.0f;
-        float step = cellSize * 0.5f;
-        float distance = 0.0f;
-        while (distance < max_range) {
-            float rayX = x + distance * std::cos(theta);
-            float rayY = y + distance * std::sin(theta);
-            int col = static_cast<int>(rayX / cellSize);
-            int row = static_cast<int>(rayY / cellSize);
-            if (row < 0 || row >= occupancy.size() ||
-                col < 0 || col >= occupancy[0].size()) {
-                break; // outside grid bounds
-            }
-            // Only treat walls (occupancy == 0) as obstacles.
-            if (occupancy[row][col] == 0) {
-                return { distance };
-            }
-            // Ground (1) and holes (2) are ignored by the sensor.
-            distance += step;
-        }
-        return { max_range };
-    }
-
-    float sensor_co2() { return 0; }
-
-    int sensor_aqi() { return 0; }
-};
-
-struct VineRobot {
-    // The vine's path as a list of points in world coordinates.
-    std::vector<std::pair<float, float>> points;
-    // The current intended expansion direction (in radians).
-    float theta;
-    // Expansion rate in meters per second.
-    float expansionRate;
-    // The index into 'points' that is used as the pivot for rotations.
-    int pivotIndex;
-    // Last update time for the tip sensor.
-    float tipSensorLastUpdate;
-
-    bool retracting = false;
-    float retractRemaining = 0.0f;
-
-
-    VineRobot()
-        : theta(0.0f), expansionRate(0.5f), pivotIndex(0), tipSensorLastUpdate(0.0f)
-    {
-        // Initialize at a chosen base point.
-        points.push_back({ 1.0f, 1.0f });
-    }
-
-    // Return the current tip (the last point).
-    std::pair<float, float> tip() const {
-        return points.back();
-    }
-
-    // Returns true if the given point collides with a wall.
-    // (Assumes occupancy cell value 0 means wall; outside grid counts as collision.)
-    bool isColliding(const std::pair<float, float>& pt, const std::vector<std::vector<int>>& occupancy, float cellSize) {
-        int col = static_cast<int>(pt.first / cellSize);
-        int row = static_cast<int>(pt.second / cellSize);
-        if (row < 0 || row >= occupancy.size() || col < 0 || col >= occupancy[0].size())
-            return true;
-        return (occupancy[row][col] == 0);
-    }
-
-    // Rotate all points from pivotIndex onward about the pivot by deltaTheta.
-    void rotateFromPivot(float deltaTheta) {
-        auto pivot = points[pivotIndex];
-        for (int i = pivotIndex; i < points.size(); i++) {
-            float rx = points[i].first - pivot.first;
-            float ry = points[i].second - pivot.second;
-            float rrx = rx * std::cos(deltaTheta) - ry * std::sin(deltaTheta);
-            float rry = rx * std::sin(deltaTheta) + ry * std::cos(deltaTheta);
-            points[i].first = pivot.first + rrx;
-            points[i].second = pivot.second + rry;
-        }
-        // Update the overall expansion direction.
-        theta += deltaTheta;
-    }
-
-    // Check for collisions along the vine (excluding the tip).
-    // Returns the index of the first colliding point (if any), or -1 if none.
-    int firstCollidingIndex(const std::vector<std::vector<int>>& occupancy, float cellSize) {
-        for (int i = pivotIndex + 1; i < points.size() - 1; i++) {
-            if (isColliding(points[i], occupancy, cellSize))
-                return i;
-        }
-        return -1;
-    }
-
-    // The move function (unchanged from our turning/expansion logic).
-    void move(const std::vector<std::vector<int>>& occupancy, float cellSize, float dt) {
-        // If currently retracting, retract gradually.
-        if (retracting) {
-            // Compute the retraction distance for this time step.
-            float d_retract = expansionRate * dt;
-            if (d_retract > retractRemaining)
-                d_retract = retractRemaining;
-            float remaining = d_retract;
-            // Remove points from the tip until we've retracted 'd_retract' meters.
-            while (remaining > 0 && points.size() > 1) {
-                float dx = points.back().first - points[points.size() - 2].first;
-                float dy = points.back().second - points[points.size() - 2].second;
-                float segLength = std::sqrt(dx * dx + dy * dy);
-                if (segLength <= remaining) {
-                    remaining -= segLength;
-                    points.pop_back();
-                }
-                else {
-                    float ratio = (segLength - remaining) / segLength;
-                    points.back().first = points[points.size() - 2].first + dx * ratio;
-                    points.back().second = points[points.size() - 2].second + dy * ratio;
-                    remaining = 0;
-                }
-            }
-            retractRemaining -= d_retract;
-            if (retractRemaining <= 0) {
-                // Retraction complete: update pivot and rotate 60°.
-                retracting = false;
-                pivotIndex = static_cast<int>(points.size()) - 1;
-                float turnAngle = 60.0f * (3.14159265f / 180.0f);
-                theta += turnAngle;
-            }
-            return;
-        }
-
-        // Check for collision in non-tip segments.
-        int collidingIndex = firstCollidingIndex(occupancy, cellSize);
-        if (collidingIndex != -1) {
-            int pointsFromTip = static_cast<int>(points.size()) - collidingIndex;
-            if (pointsFromTip <= 5) {
-                // Begin gradual retraction: set target of 10 cm.
-                retracting = true;
-                retractRemaining = 1.0f;
-                return;
-            }
-            else {
-                // Collision farther back—pause expansion.
-                expansionRate = 0;
-                return;
-            }
-        }
-
-        // Normal tip extension.
-        float d = expansionRate * dt;
-        auto currentTip = tip();
-        std::pair<float, float> candidate = {
-            currentTip.first + d * std::cos(theta),
-            currentTip.second + d * std::sin(theta)
-        };
-
-        if (!isColliding(candidate, occupancy, cellSize)) {
-            points.push_back(candidate);
-        }
-        else {
-            // If the tip is colliding, attempt a small sliding rotation.
-            auto pivot = points[pivotIndex];
-            float dx = currentTip.first - pivot.first;
-            float dy = currentTip.second - pivot.second;
-            float r = std::sqrt(dx * dx + dy * dy);
-            if (r < 1e-4f)
-                return;
-            float maxAllowedRotation = d / r;
-            float desiredRotation = 20.0f * (3.14159265f / 180.0f);
-            float deltaTheta = std::min(desiredRotation, maxAllowedRotation);
-            rotateFromPivot(deltaTheta);
-            currentTip = tip();
-            candidate = {
-                currentTip.first + d * std::cos(theta),
-                currentTip.second + d * std::sin(theta)
-            };
-            if (!isColliding(candidate, occupancy, cellSize))
-                points.push_back(candidate);
-        }
-    }
-
-
-    // --- New Sensor Functions for Lidar Measurement from the Tip ---
-
-    // This sensor_lidar function mimics the RescueRobot's version
-    // but uses the tip as the sensor location.
-    // In simul.hpp inside the VineRobot struct, replace the sensor_lidar function with:
-    std::vector<float> sensor_lidar(const std::vector<std::vector<int>>& occupancy, float cellSize) {
-        const float max_range = 2.0f;
-        float step = cellSize * 0.5f;
-        std::vector<float> measurements(3, max_range);
-        auto sensorPos = tip();
-        // Define the three angle offsets in radians (-15°, 0°, 15°)
-        float angleOffsets[3] = { -15.0f * (PI / 180.0f), 0.0f, 15.0f * (PI / 180.0f) };
-
-        for (int i = 0; i < 3; i++) {
-            float sensorAngle = theta + angleOffsets[i];
-            float distance = 0.0f;
-            while (distance < max_range) {
-                float rayX = sensorPos.first + distance * std::cos(sensorAngle);
-                float rayY = sensorPos.second + distance * std::sin(sensorAngle);
-                int col = static_cast<int>(rayX / cellSize);
-                int row = static_cast<int>(rayY / cellSize);
-                if (row < 0 || row >= occupancy.size() ||
-                    col < 0 || col >= occupancy[0].size()) {
-                    break; // outside grid bounds
-                }
-                // Only treat walls (occupancy == 0) as obstacles.
-                if (occupancy[row][col] == 0) {
-                    measurements[i] = distance;
-                    break;
-                }
-                distance += step;
-            }
-            // If no obstacle was encountered, set measurement to max_range.
-            if (distance >= max_range) {
-                measurements[i] = max_range;
-            }
-        }
-        return measurements;
-    }
-
-
-    void measure(const std::vector<std::vector<int>>& trueOccupancy,
-        std::vector<std::vector<int>>& unknownOccupancy,
-        std::vector<std::vector<int>>& foundBy,
-        const std::vector<std::vector<float>>& trueHeat,
-        std::vector<std::vector<float>>& knownHeat,
-        float cellSize, float currentTime)
-    {
-        const float defaultUpdateInterval = 0.1f;
-        if (currentTime - tipSensorLastUpdate < defaultUpdateInterval)
-            return;
-
-        // Get three lidar measurements from the tip.
-        std::vector<float> measurements = sensor_lidar(trueOccupancy, cellSize);
-        if (measurements.empty())
-            return;
-
-        auto sensorPos = tip();
-        const float maxRange = 2.0f;
-        // Define the three sensor angle offsets (in radians) relative to the vine robot's heading.
-        float angleOffsets[3] = { -15.0f * (PI / 180.0f), 0.0f, 15.0f * (PI / 180.0f) };
-
-        // Loop over each sensor measurement.
-        for (int i = 0; i < 3; i++) {
-            float sensorAngle = theta + angleOffsets[i];
-            float distance = measurements[i];
-            int stepsCount = static_cast<int>(distance / cellSize);
-
-            // Update free cells along the ray for this sensor.
-            for (int j = 0; j < stepsCount; j++) {
-                float rayX = sensorPos.first + (j * cellSize) * std::cos(sensorAngle);
-                float rayY = sensorPos.second + (j * cellSize) * std::sin(sensorAngle);
-                int col = static_cast<int>(rayX / cellSize);
-                int row = static_cast<int>(rayY / cellSize);
-                if (row >= 0 && row < unknownOccupancy.size() &&
-                    col >= 0 && col < unknownOccupancy[0].size())
-                {
-                    // Only update if the cell is still undiscovered.
-                    if (unknownOccupancy[row][col] == -1) {
-                        unknownOccupancy[row][col] = 1; // ground
-                        foundBy[row][col] = -2;         // mark as discovered by vine robot
-                    }
-                }
-            }
-            // If an obstacle was detected by this sensor, mark that cell as a wall.
-            if (distance < maxRange) {
-                float sensorX = sensorPos.first + distance * std::cos(sensorAngle);
-                float sensorY = sensorPos.second + distance * std::sin(sensorAngle);
-                int col = static_cast<int>(sensorX / cellSize);
-                int row = static_cast<int>(sensorY / cellSize);
-                if (row >= 0 && row < unknownOccupancy.size() &&
-                    col >= 0 && col < unknownOccupancy[0].size())
-                {
-                    if (unknownOccupancy[row][col] == -1) {
-                        unknownOccupancy[row][col] = 0; // wall
-                        foundBy[row][col] = -2;         // mark as discovered by vine robot
-                    }
-                }
-            }
-        }
-        tipSensorLastUpdate = currentTime;
-    }
-
-
-};
+#include <vine_robot.hpp>
+#include <rescue_robot.hpp>
 
 struct Grid {
-    float scale_m;  // Size of each cell in meters
+    float cellSize;  // Size of each cell in meters
     std::vector<std::vector<float>> co2;
     std::vector<std::vector<float>> heat;
     std::vector<std::vector<int>> ground_type;
@@ -491,15 +17,15 @@ struct Grid {
     std::vector<std::vector<int>> foundBy;
 
     // Constructor: initializes all maps with 'rows' x 'cols' elements.
-    Grid(int rows, int cols, float scale_m)
+    Grid(int rows, int cols, float cellSize)
         : co2(rows, std::vector<float>(cols, 0.0f)),
-        heat(rows, std::vector<float>(cols, 0.0f)),
+        heat(rows, std::vector<float>(cols, -1)),
         interpolatedHeat(rows, std::vector<float>(cols, 0.0f)),
         ground_type(rows, std::vector<int>(cols, 0)),
         incline(rows, std::vector<float>(cols, 0.0f)),
         occupancy(rows, std::vector<int>(cols, -1)),
         foundBy(rows, std::vector<int>(cols, -1)),
-        scale_m(scale_m)
+        cellSize(cellSize)
     {}
 };
 
@@ -529,7 +55,6 @@ inline void updateInterpolatedHeatMap(Grid& grid) {
     float p = 2.0f;
     // Resize (or reinitialize) the interpolatedHeat grid.
     grid.interpolatedHeat.resize(rows, std::vector<float>(cols, 0.0f));
-
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             // If a cell is measured, copy its value directly.
@@ -545,14 +70,14 @@ inline void updateInterpolatedHeatMap(Grid& grid) {
                     float val;
                     std::tie(mi, mj, val) = tup;
                     // Compute Euclidean distance in grid units.
-                    float d = std::sqrt((i - mi) * (i - mi) + (j - mj) * (j - mj));
+                    float d = (i - mi) * (i - mi) + (j - mj) * (j - mj);
                     // Avoid division by zero: if the distance is extremely small, use the measured value.
                     if (d < 0.0001f) {
                         numerator = val;
                         denominator = 1.0f;
                         break;
                     }
-                    float weight = 1.0f / std::pow(d, p);
+                    float weight = 1.0f / d;
                     numerator += weight * val;
                     denominator += weight;
                 }
@@ -561,8 +86,8 @@ inline void updateInterpolatedHeatMap(Grid& grid) {
         }
     }
     // Force a measured value at physical (5,5).
-    // Assuming grid.scale_m is the cell size (e.g., 0.05m), then:
-    int centerIdx = static_cast<int>(5.0f / grid.scale_m);
+    // Assuming grid.cellSize is the cell size (e.g., 0.05m), then:
+    int centerIdx = static_cast<int>(5.0f / grid.cellSize);
     if (centerIdx < rows && centerIdx < cols) {
         grid.interpolatedHeat[centerIdx][centerIdx] = 500.0f;
     }
@@ -696,31 +221,29 @@ public:
     int nextRrSpawnIndex;
     int updateCounter = 0;
 
-    Simulation(int grid_rows, int grid_cols, float scale_m, int n_robots, int robot_sensor_count, float max_time, float dt = 0.01f, int numOfPpl = 0,
+    Simulation(int grid_rows, int grid_cols, float cellSize, int n_robots, int robot_sensor_count, float max_time, float dt = 0.01f, int numOfPpl = 0,
         const std::vector<std::pair<float, float>>& sourcePositions = std::vector<std::pair<float, float>>())
-        : known_grid(grid_rows, grid_cols, scale_m),
-        grid(grid_rows, grid_cols, scale_m),
-        rr(n_robots),  // This will be cleared and manually set in main.
-        vr(),
+        : known_grid(grid_rows, grid_cols, cellSize),
+        grid(grid_rows, grid_cols, cellSize),
         max_time(max_time),
         dt(dt),
         numOfPpl(numOfPpl),
         sourcePositions(sourcePositions),
-        rrActive(false),
+        rrActive(true),
         vrActive(true),
         nextRrSpawnIndex(0)
     {}
 
     bool update() {
         // Update the heat map.
-        heatmapUpdate(known_grid.occupancy, known_grid.heat, dt, known_grid.scale_m);
-        injectHeatSources(known_grid.heat, numOfPpl, sourcePositions, 37.0f, known_grid.scale_m);
+        heatmapUpdate(known_grid.occupancy, known_grid.heat, dt, known_grid.cellSize);
+        injectHeatSources(known_grid.heat, numOfPpl, sourcePositions, 37.0f, known_grid.cellSize);
 
         // Update the vine robot if active.
         if (vrActive) {
-            vr.move(known_grid.occupancy, known_grid.scale_m, dt);
+            vr.move(known_grid.occupancy, known_grid.cellSize, dt);
             vr.measure(known_grid.occupancy, grid.occupancy, grid.foundBy,
-                       known_grid.heat, grid.heat, known_grid.scale_m, t);
+                       known_grid.heat, grid.heat, known_grid.cellSize, t);
         }
 
         // Update rescue robots if active.
@@ -739,7 +262,7 @@ public:
                     }
 
                     float requiredDistance = 1.2f * rr[nextRrSpawnIndex].size;
-                    float scale = known_grid.scale_m;
+                    float scale = known_grid.cellSize;
                     int gridRows = known_grid.occupancy.size();
                     int gridCols = known_grid.occupancy[0].size();
 
@@ -786,7 +309,6 @@ public:
                 if (robot.spawned && !robot.dead) {
                     robot.move(dt,
                                known_grid.occupancy,
-                               known_grid.scale_m,
                                rr,                        // list of rescue robots
                                known_grid.occupancy,      // true occupancy grid
                                grid.occupancy,            // discovered occupancy grid
@@ -826,9 +348,9 @@ public:
         float accumulatedTime = 0.0f;
         while (accumulatedTime < initTime) {
             // Diffuse the heat map using the current occupancy information.
-            heatmapUpdate(known_grid.occupancy, known_grid.heat, dt, known_grid.scale_m);
+            heatmapUpdate(known_grid.occupancy, known_grid.heat, dt, known_grid.cellSize);
             // Re-inject heat sources so they remain at personTemp.
-            injectHeatSources(known_grid.heat, numOfPpl, sourcePositions, 37.0f, known_grid.scale_m);
+            injectHeatSources(known_grid.heat, numOfPpl, sourcePositions, 37.0f, known_grid.cellSize);
             accumulatedTime += dt;
         }
     }
