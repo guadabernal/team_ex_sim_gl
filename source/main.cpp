@@ -62,7 +62,7 @@ int main() {
     simConsts.muHoleSize = 0.5f;
     simConsts.sigmaHoleSize = 0.2f;
     simConsts.nHoles = 8;
-    simConsts.nPeople = 2;
+    simConsts.nPeople = 4;
     simConsts.maxTime = 30.0f;
     simConsts.dt = 0.01f;
 

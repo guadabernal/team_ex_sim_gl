@@ -298,8 +298,10 @@ public:
         }
         nextRrSpawnIndex = 0;
         // populate people
-        personPositions.push_back({ 3.0f, 3.0f });
-        personPositions.push_back({ 8.0f, 8.0f });
+        personPositions.push_back({ 1.5f, 1.5f });
+        personPositions.push_back({ 7.0f, 5.8f });
+        personPositions.push_back({ 19.0f, 6.5f });
+        personPositions.push_back({ 12.0f, 15.3f });
     }
 
     bool update() {
