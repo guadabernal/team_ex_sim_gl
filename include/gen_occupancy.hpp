@@ -82,11 +82,7 @@ struct OfficeDefinition
 // ------------------- Example Layouts -------------------
 OfficeDefinition office_01(float floor_width, float floor_height, float doorWidth)
 {
-    // We will store everything in OfficeDefinition
     OfficeDefinition layout;
-
-    // Example "big bounding room" or just a large region.
-    // (If you want a bounding rectangle around your entire floor.)
     Room room0(0.00f, 0.00f, 20.0f, 20.0f);
     layout.rooms.push_back(room0);
 
