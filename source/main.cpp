@@ -10,7 +10,6 @@
 #include <atomic>
 #include <chrono>
 #include <random>
-#include "gen_occupancy.hpp"
 #include "simul.hpp"
 #include "simul_render.hpp"
 #include "rescue_robot.hpp"
@@ -56,52 +55,26 @@ int main() {
 
 
     // --------------- Create Simulation consts --------------------
-
-    float cellSize = 0.05f; // meters
-    float total_size = 10;    // meters
-    int grid_size = total_size / cellSize;
-    int nRobots = 10;         // number of robots
-    int sensorCount = 5;      // sensor count per robot
-    float muHoleSize = 0.5;
-    float sigmaHoleSize = 0.2;
-    int numHoles = 8;
-    int numOfPpl = 2;         // number of heat sources
-
-
-    std::vector<std::pair<float, float>> personPositions;
-    int gridCols = grid_size;
-    int gridRows = grid_size;
-    personPositions.push_back({ gridCols * 0.25f, gridRows * 0.1f });
-    personPositions.push_back({ gridCols * 0.8f, gridRows * 0.2f });
-
+    SimConsts simConsts;
+    simConsts.cellSize = 0.05f;
+    simConsts.totalSize = 10.0f;
+    simConsts.nRobots = 10;
+    simConsts.muHoleSize = 0.5f;
+    simConsts.sigmaHoleSize = 0.2f;
+    simConsts.nHoles = 8;
+    simConsts.nPeople = 2;
+    simConsts.maxTime = 30.0f;
+    simConsts.dt = 0.01f;
 
     // --------------- Create Simulation instance --------------------
-    Simulation simulation(grid_size, grid_size, cellSize, nRobots, sensorCount, 30, 0.01f, numOfPpl, personPositions);
-
-    // --------------- Fill Simulation Maps and Robots --------------------
-
-    generateOfficeMap(simulation.known_grid.occupancy, cellSize, 0.15f, 0.9f); // first place walls
-    addHoles(simulation.known_grid.occupancy, cellSize, muHoleSize, sigmaHoleSize, numHoles); // second add holes
-    simulation.initializeHeatMap(10.0f, 20.0f);
-
-    //simulation.rr = spawnRobots(simulation, nRobots, sensorCount);
-    simulation.rr.clear();
-    for (int i = 0; i < 10; i++) {
-        RescueRobot robot(1.5f, 1.5f, 0.0f, 3.0f * i, cellSize, true, true);
-        simulation.rr.push_back(robot);
-    }
-    simulation.nextRrSpawnIndex = 0;
+    Simulation simulation(simConsts);
 
     
     // --------------- Run Simulation & Plot--------------------
 
     // Compute the scale factor so that the 4 grids fits the window.
     float viewWidth = WINDOW_WIDTH / 3.0f;
-    //float renderScaleFactor = viewWidth / total_size;
-
-
-
-    float renderScaleFactor = (float)colWidth / total_size;
+    float renderScaleFactor = (float)colWidth / simulation.consts.totalSize;
     //float renderScaleFactor = float(WINDOW_WIDTH) / (total_size);
 
     std::mutex simMutex;
@@ -229,6 +202,22 @@ int main() {
             renderInterpolatedHeatMap(simulation, renderScaleFactor); // New function (see below)
             renderRobots(simulation, renderScaleFactor);
             renderVineRobot(simulation, renderScaleFactor);
+            glPopMatrix();
+            glMatrixMode(GL_PROJECTION);
+            glPopMatrix();
+
+            //Incline map
+            glViewport(2 * colWidth, rowHeight, colWidth, rowHeight);
+            glMatrixMode(GL_PROJECTION);
+            glPushMatrix();
+            glLoadIdentity();
+            glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+            glMatrixMode(GL_MODELVIEW);
+            glPushMatrix();
+            glLoadIdentity();
+            renderRobots(simulation, renderScaleFactor);
+            renderVineRobot(simulation, renderScaleFactor);
+            renderInclineMap(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
@@ -393,6 +382,21 @@ int main() {
         renderInterpolatedHeatMap(simulation, renderScaleFactor); // New function (see below)
         renderRobots(simulation, renderScaleFactor);
         renderVineRobot(simulation, renderScaleFactor);
+        glPopMatrix();
+        glMatrixMode(GL_PROJECTION);
+        glPopMatrix();
+
+        glViewport(2 * colWidth, rowHeight, colWidth, rowHeight);
+        glMatrixMode(GL_PROJECTION);
+        glPushMatrix();
+        glLoadIdentity();
+        glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+        glMatrixMode(GL_MODELVIEW);
+        glPushMatrix();
+        glLoadIdentity();
+        renderRobots(simulation, renderScaleFactor);
+        renderVineRobot(simulation, renderScaleFactor);
+        renderInclineMap(simulation, renderScaleFactor);
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();

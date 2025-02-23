@@ -5,6 +5,8 @@
 #include <tuple>
 #include <vine_robot.hpp>
 #include <rescue_robot.hpp>
+#include <gen_occupancy.hpp>
+#include <gen_height_map.hpp>
 
 struct Grid {
     float cellSize;  // Size of each cell in meters
@@ -12,17 +14,23 @@ struct Grid {
     std::vector<std::vector<float>> heat;
     std::vector<std::vector<int>> ground_type;
     std::vector<std::vector<float>> interpolatedHeat;
-    std::vector<std::vector<float>> incline;
+    std::vector<std::vector<float>> incline;  // Optionally, gradient magnitude
+    std::vector<std::vector<float>> height;
+    std::vector<std::vector<float>> gradX;  
+    std::vector<std::vector<float>> gradY;  
     std::vector<std::vector<int>> occupancy;
     std::vector<std::vector<int>> foundBy;
 
-    // Constructor: initializes all maps with 'rows' x 'cols' elements.
+    // Constructor: now initializes gradX and gradY as well.
     Grid(int rows, int cols, float cellSize)
         : co2(rows, std::vector<float>(cols, 0.0f)),
         heat(rows, std::vector<float>(cols, -1)),
         interpolatedHeat(rows, std::vector<float>(cols, 0.0f)),
         ground_type(rows, std::vector<int>(cols, 0)),
         incline(rows, std::vector<float>(cols, 0.0f)),
+        height(rows, std::vector<float>(cols, 0.0f)),
+        gradX(rows, std::vector<float>(cols, 0.0f)),  // NEW
+        gradY(rows, std::vector<float>(cols, 0.0f)),  // NEW
         occupancy(rows, std::vector<int>(cols, -1)),
         foundBy(rows, std::vector<int>(cols, -1)),
         cellSize(cellSize)
@@ -94,6 +102,37 @@ inline void updateInterpolatedHeatMap(Grid& grid) {
 
 }
 
+// Compute the gradient (inclination) of the height map.
+inline void updateInclineMap(Grid &grid) {
+    int rows = grid.height.size();
+    if (rows < 3) return;
+    int cols = grid.height[0].size();
+
+    // Loop over internal cells (skip borders for simplicity)
+    for (int i = 1; i < rows - 1; i++) {
+        for (int j = 1; j < cols - 1; j++) {
+            float hCenter = grid.height[i][j];
+            float hLeft = grid.height[i][j - 1];
+            float hRight = grid.height[i][j + 1];
+            float hUp = grid.height[i - 1][j];
+            float hDown = grid.height[i + 1][j];
+
+            // If any of the neighboring heights is set to infinity (or -infinity)
+            // then mark the cell as discontinuous.
+            if (!std::isfinite(hCenter) ||
+                !std::isfinite(hLeft) ||
+                !std::isfinite(hRight) ||
+                !std::isfinite(hUp) ||
+                !std::isfinite(hDown)) {
+                grid.incline[i][j] = std::numeric_limits<float>::infinity();
+            } else {
+                float dhdx = (hRight - hLeft) / (2.0f * grid.cellSize);
+                float dhdy = (hDown - hUp) / (2.0f * grid.cellSize);
+                grid.incline[i][j] = std::sqrt(dhdx * dhdx + dhdy * dhdy);
+            }
+        }
+    }
+}
 
 inline void heatmapUpdate(const std::vector<std::vector<int>>& occupancy,std::vector<std::vector<float>>& heat,float dt,float dx)
 {
@@ -165,7 +204,7 @@ inline void heatmapUpdate(const std::vector<std::vector<int>>& occupancy,std::ve
     }
     heat = mixedHeat;
 }
-inline void injectHeatSources(std::vector<std::vector<float>>& heat, int numOfPpl, const std::vector<std::pair<float, float>>& sourcePositions, float personTemp, float scale)
+inline void injectHeatSources(std::vector<std::vector<float>>& heat, const std::vector<std::pair<float, float>>& sourcePositions, float personTemp, float scale)
 {
     int rows = heat.size();
     if (rows == 0) return;
@@ -177,10 +216,10 @@ inline void injectHeatSources(std::vector<std::vector<float>>& heat, int numOfPp
     int radiusCells = static_cast<int>(std::ceil(personRadius / scale));
 
     // For each heat source...
-    for (int i = 0; i < numOfPpl && i < sourcePositions.size(); i++) {
+    for (int i = 0; i < sourcePositions.size(); i++) {
         // The center of the person is given in grid coordinates.
-        int centerX = static_cast<int>(sourcePositions[i].first);
-        int centerY = static_cast<int>(sourcePositions[i].second);
+        int centerX = static_cast<int>(sourcePositions[i].first /scale);
+        int centerY = static_cast<int>(sourcePositions[i].second / scale);
 
         // Loop over a bounding square around the center.
         for (int y = centerY - radiusCells; y <= centerY + radiusCells; y++) {
@@ -200,9 +239,25 @@ inline void injectHeatSources(std::vector<std::vector<float>>& heat, int numOfPp
     }
 }
 
+struct SimConsts
+{
+    float cellSize = 0.05f;    // meters
+    float totalSize = 10;      // meters
+    int nRobots = 10;          // number of robots
+    float muHoleSize = 0.5;
+    float sigmaHoleSize = 0.2;
+    int nHoles = 0;
+    int nPeople = 0;
+    float maxTime = 30;      // simulation maximum time
+    float dt = 0.01;
+    int getGridCols() const { return static_cast<int>(totalSize / cellSize); }
+    int getGridRows() const { return static_cast<int>(totalSize / cellSize); }
+};
+
 // Simulation class that contains two grids and a vector of RescueRobot objects.
 class Simulation {
 public:
+    SimConsts consts;
     Grid known_grid;
     Grid grid;
     
@@ -213,35 +268,48 @@ public:
     bool vrActive;
 
     float t = 0;
-    float dt;
-    float max_time;
-    int numOfPpl;
-    std::vector<std::pair<float, float>> sourcePositions;
+    std::vector<std::pair<float, float>> personPositions;
 
     int nextRrSpawnIndex;
     int updateCounter = 0;
 
-    Simulation(int grid_rows, int grid_cols, float cellSize, int n_robots, int robot_sensor_count, float max_time, float dt = 0.01f, int numOfPpl = 0,
-        const std::vector<std::pair<float, float>>& sourcePositions = std::vector<std::pair<float, float>>())
-        : known_grid(grid_rows, grid_cols, cellSize),
-        grid(grid_rows, grid_cols, cellSize),
-        max_time(max_time),
-        dt(dt),
-        numOfPpl(numOfPpl),
-        sourcePositions(sourcePositions),
-        rrActive(true),
-        vrActive(true),
-        nextRrSpawnIndex(0)
-    {}
+    Simulation(const SimConsts& s)
+        : known_grid(s.getGridRows(), s.getGridCols(), s.cellSize)
+        , grid(s.getGridRows(), s.getGridRows(), s.cellSize)
+        , consts(s)
+        , rrActive(true)
+        , vrActive(true)
+        , nextRrSpawnIndex(0)
+    {
+
+        initializeHeatMap(10.0f, 20.0f);
+
+        generateOfficeMap(known_grid.occupancy, consts.cellSize, 0.15f, 0.9f); // first place walls
+        addHoles(known_grid.occupancy, consts.cellSize, consts.muHoleSize, consts.sigmaHoleSize, consts.nHoles); // second add holes
+
+        HeightMapGenerator::generateHeightMap(known_grid.height, known_grid.gradX, known_grid.gradY, consts.cellSize);
+        //HeightMapGenerator::interpolateHeightMap(knheightMap, interpolatedHeightMap, known_grid.cellSize);
+        //HeightMapGenerator::computeInclinationMap(interpolatedHeightMap, incline, known_grid.cellSize);
+        // populate robots
+        rr.clear();
+        for (int i = 0; i < 10; i++) {
+            RescueRobot robot(1.5f, 1.5f, 0.0f, 3.0f * i, consts.cellSize, true, true);
+            rr.push_back(robot);
+        }
+        nextRrSpawnIndex = 0;
+        // populate people
+        personPositions.push_back({ 3.0f, 3.0f });
+        personPositions.push_back({ 8.0f, 8.0f });
+    }
 
     bool update() {
         // Update the heat map.
-        heatmapUpdate(known_grid.occupancy, known_grid.heat, dt, known_grid.cellSize);
-        injectHeatSources(known_grid.heat, numOfPpl, sourcePositions, 37.0f, known_grid.cellSize);
+        heatmapUpdate(known_grid.occupancy, known_grid.heat, consts.dt, consts.cellSize);
+        injectHeatSources(known_grid.heat, personPositions, 37.0f, consts.cellSize);
 
         // Update the vine robot if active.
         if (vrActive) {
-            vr.move(known_grid.occupancy, known_grid.cellSize, dt);
+            vr.move(known_grid.occupancy, known_grid.cellSize, consts.dt);
             vr.measure(known_grid.occupancy, grid.occupancy, grid.foundBy,
                        known_grid.heat, grid.heat, known_grid.cellSize, t);
         }
@@ -307,7 +375,7 @@ public:
             // Update all spawned rescue robots.
             for (auto &robot : rr) {
                 if (robot.spawned && !robot.dead) {
-                    robot.move(dt,
+                    robot.move(consts.dt,
                                known_grid.occupancy,
                                rr,                        // list of rescue robots
                                known_grid.occupancy,      // true occupancy grid
@@ -327,8 +395,8 @@ public:
             }
         }
 
-        t += dt;
-        return t >= max_time;
+        t += consts.dt;
+        return t >= consts.maxTime;
     }
 
 
@@ -348,10 +416,10 @@ public:
         float accumulatedTime = 0.0f;
         while (accumulatedTime < initTime) {
             // Diffuse the heat map using the current occupancy information.
-            heatmapUpdate(known_grid.occupancy, known_grid.heat, dt, known_grid.cellSize);
+            heatmapUpdate(known_grid.occupancy, known_grid.heat, consts.dt, consts.cellSize);
             // Re-inject heat sources so they remain at personTemp.
-            injectHeatSources(known_grid.heat, numOfPpl, sourcePositions, 37.0f, known_grid.cellSize);
-            accumulatedTime += dt;
+            injectHeatSources(known_grid.heat, personPositions, 37.0f, consts.cellSize);
+            accumulatedTime += consts.dt;
         }
     }
 };

@@ -197,10 +197,10 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
         }
     }
     float cellSizePixels = simulation.known_grid.cellSize * scaleFactor;
-    for (const auto& pos : simulation.sourcePositions) {
+    for (const auto& pos : simulation.personPositions) {
         // 'pos' is in grid coordinates, so add 0.5 to center in the cell.
-        float centerX = (pos.first + 0.5f) * cellSizePixels;
-        float centerY = (pos.second + 0.5f) * cellSizePixels;
+        float centerX = (pos.first / simulation.known_grid.cellSize + 0.5f) * cellSizePixels;
+        float centerY = (pos.second / simulation.known_grid.cellSize + 0.5f) * cellSizePixels;
         // Convert the person's physical radius (in meters) to screen pixels.
         float radiusScreen = 0.15f * scaleFactor;
 
@@ -395,3 +395,42 @@ inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleF
     }
 }
 
+inline void renderInclineMap(const Simulation& simulation, float scaleFactor) {
+    int rows = simulation.known_grid.incline.size();
+    if (rows == 0) return;
+    int cols = simulation.known_grid.incline[0].size();
+    float cellSize = simulation.known_grid.cellSize * scaleFactor;
+
+    // Define a maximum slope for mapping colors.
+    const float maxIncline = 2.0f; // adjust as needed
+
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            float slope = simulation.known_grid.incline[i][j];
+            if (!std::isfinite(slope)) {
+                // Mark discontinuities (holes) with a distinct color.
+                glColor3f(0.0f, 0.0f, 0.0f); // black for holes/discontinuities
+            }
+            else {
+                // Normalize the slope and map it to a color.
+                float norm = slope / maxIncline;
+                if (norm > 1.0f) norm = 1.0f;
+                // For example, flat areas might be light blue and steep areas red.
+                float r = norm;
+                float g = 1.0f - norm;
+                float b = 1.0f;
+                glColor3f(r, g, b);
+            }
+            float left = j * cellSize;
+            float top = i * cellSize;
+            float right = left + cellSize;
+            float bottom = top + cellSize;
+            glBegin(GL_QUADS);
+            glVertex2f(left, top);
+            glVertex2f(right, top);
+            glVertex2f(right, bottom);
+            glVertex2f(left, bottom);
+            glEnd();
+        }
+    }
+}
