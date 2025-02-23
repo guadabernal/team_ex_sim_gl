@@ -14,7 +14,6 @@ struct Grid {
     std::vector<std::vector<float>> heat;
     std::vector<std::vector<int>> ground_type;
     std::vector<std::vector<float>> interpolatedHeat;
-    std::vector<std::vector<float>> incline;  // Optionally, gradient magnitude
     std::vector<std::vector<float>> height;
     std::vector<std::vector<float>> gradX;  
     std::vector<std::vector<float>> gradY;  
@@ -27,7 +26,6 @@ struct Grid {
         heat(rows, std::vector<float>(cols, -1)),
         interpolatedHeat(rows, std::vector<float>(cols, 0.0f)),
         ground_type(rows, std::vector<int>(cols, 0)),
-        incline(rows, std::vector<float>(cols, 0.0f)),
         height(rows, std::vector<float>(cols, 0.0f)),
         gradX(rows, std::vector<float>(cols, 0.0f)),  // NEW
         gradY(rows, std::vector<float>(cols, 0.0f)),  // NEW
@@ -102,37 +100,6 @@ inline void updateInterpolatedHeatMap(Grid& grid) {
 
 }
 
-// Compute the gradient (inclination) of the height map.
-inline void updateInclineMap(Grid &grid) {
-    int rows = grid.height.size();
-    if (rows < 3) return;
-    int cols = grid.height[0].size();
-
-    // Loop over internal cells (skip borders for simplicity)
-    for (int i = 1; i < rows - 1; i++) {
-        for (int j = 1; j < cols - 1; j++) {
-            float hCenter = grid.height[i][j];
-            float hLeft = grid.height[i][j - 1];
-            float hRight = grid.height[i][j + 1];
-            float hUp = grid.height[i - 1][j];
-            float hDown = grid.height[i + 1][j];
-
-            // If any of the neighboring heights is set to infinity (or -infinity)
-            // then mark the cell as discontinuous.
-            if (!std::isfinite(hCenter) ||
-                !std::isfinite(hLeft) ||
-                !std::isfinite(hRight) ||
-                !std::isfinite(hUp) ||
-                !std::isfinite(hDown)) {
-                grid.incline[i][j] = std::numeric_limits<float>::infinity();
-            } else {
-                float dhdx = (hRight - hLeft) / (2.0f * grid.cellSize);
-                float dhdy = (hDown - hUp) / (2.0f * grid.cellSize);
-                grid.incline[i][j] = std::sqrt(dhdx * dhdx + dhdy * dhdy);
-            }
-        }
-    }
-}
 
 inline void heatmapUpdate(const std::vector<std::vector<int>>& occupancy,std::vector<std::vector<float>>& heat,float dt,float dx)
 {
@@ -283,13 +250,15 @@ public:
     {
 
         initializeHeatMap(10.0f, 20.0f);
+        // generate map
+        generateOfficeMap(known_grid.occupancy, consts.cellSize, 0.15f, 0.9f);
 
-        generateOfficeMap(known_grid.occupancy, consts.cellSize, 0.15f, 0.9f); // first place walls
-        addHoles(known_grid.occupancy, consts.cellSize, consts.muHoleSize, consts.sigmaHoleSize, consts.nHoles); // second add holes
+        // generate holes
+        addHoles(known_grid.occupancy, consts.cellSize, consts.muHoleSize, consts.sigmaHoleSize, consts.nHoles);
 
+        // generate inclination maps
         HeightMapGenerator::generateHeightMap(known_grid.height, known_grid.gradX, known_grid.gradY, consts.cellSize);
-        //HeightMapGenerator::interpolateHeightMap(knheightMap, interpolatedHeightMap, known_grid.cellSize);
-        //HeightMapGenerator::computeInclinationMap(interpolatedHeightMap, incline, known_grid.cellSize);
+
         // populate robots
         rr.clear();
         for (int i = 0; i < 10; i++) {

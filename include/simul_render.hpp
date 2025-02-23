@@ -395,32 +395,47 @@ inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleF
     }
 }
 
-inline void renderInclineMap(const Simulation& simulation, float scaleFactor) {
-    int rows = simulation.known_grid.incline.size();
+#pragma once
+#include <simul.hpp>
+#include <GLFW/glfw3.h>
+#include <cmath>
+#include <vector>
+#include <vine_robot.hpp>
+
+// ... existing rendering functions ...
+
+// NEW: Render the gradient map (vector field) from the gradX and gradY grids.
+inline void renderGradientMap(const Simulation& simulation, float scaleFactor) {
+    int rows = simulation.known_grid.gradX.size();
     if (rows == 0) return;
-    int cols = simulation.known_grid.incline[0].size();
+    int cols = simulation.known_grid.gradX[0].size();
     float cellSize = simulation.known_grid.cellSize * scaleFactor;
 
-    // Define a maximum slope for mapping colors.
-    const float maxIncline = 2.0f; // adjust as needed
+    // Define the maximum expected gradient magnitude for normalization.
+    const float maxMagnitude = 2.0f; // Adjust this value as needed
 
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
-            float slope = simulation.known_grid.incline[i][j];
-            if (!std::isfinite(slope)) {
-                // Mark discontinuities (holes) with a distinct color.
-                glColor3f(0.0f, 0.0f, 0.0f); // black for holes/discontinuities
+            float gx = simulation.known_grid.gradX[i][j];
+            float gy = simulation.known_grid.gradY[i][j];
+            float magnitude;
+            if (!std::isfinite(gx) || !std::isfinite(gy)) {
+                // Render discontinuities (or undefined gradients) as black.
+                magnitude = maxMagnitude;
             }
             else {
-                // Normalize the slope and map it to a color.
-                float norm = slope / maxIncline;
-                if (norm > 1.0f) norm = 1.0f;
-                // For example, flat areas might be light blue and steep areas red.
-                float r = norm;
-                float g = 1.0f - norm;
-                float b = 1.0f;
-                glColor3f(r, g, b);
+                magnitude = std::sqrt(gx * gx + gy * gy);
             }
+            // Normalize magnitude to [0,1]
+            float norm = magnitude / maxMagnitude;
+            if (norm > 1.0f) norm = 1.0f;
+            // Map the normalized value to a color gradient.
+            // For example: flat areas (norm=0) are light blue, steep areas (norm=1) are red.
+            float r = norm;             // Red increases with slope
+            float g = 1.0f - norm;        // Green decreases with slope
+            float b = 1.0f - norm * 0.5f; // Blue slightly decreases
+            glColor3f(r, g, b);
+
             float left = j * cellSize;
             float top = i * cellSize;
             float right = left + cellSize;
@@ -434,3 +449,5 @@ inline void renderInclineMap(const Simulation& simulation, float scaleFactor) {
         }
     }
 }
+
+
