@@ -47,7 +47,7 @@ struct Room
 };
 
 
-std::vector<Room> office_01(float floor_width, float floor_height, float doorWidth)
+std::vector<Room> office_02(float floor_width, float floor_height, float doorWidth)
 {
     Room room1 = Room(0.00, 0.00, 0.33, 0.50, floor_width, floor_height);
     room1.addDoor(3, 0.33/2 * floor_width, doorWidth);
@@ -64,6 +64,51 @@ std::vector<Room> office_01(float floor_width, float floor_height, float doorWid
     rooms.push_back(room2);
     rooms.push_back(room3);
     rooms.push_back(room4);
+    return rooms;
+}
+
+std::vector<Room> office_01(float floor_width, float floor_height, float doorWidth)
+{
+    Room room0 = Room(0.00, 0.00, 20, 20);
+    // 0:right, 1:top, 2:left, 3:bottom
+
+    Room room1 = Room(0.00, 0.00, 6, 3);
+    room1.addDoorRelativeFixWidth(3, 0.5, 0.9);
+
+    Room room2 = Room(6, 0.00, 4, 3);
+    room2.addDoorRelativeFixWidth(0, 0.5, 0.9);
+
+    Room room3 = Room(10, 0.00, 4.5, 7);
+    room3.addDoorRelativeFixWidth(3, 0.5, 0.9);
+    Room room4 = Room(14.5, 0.00, 5.5, 7);
+    room4.addDoorRelativeFixWidth(3, 0.5, 0.9);
+    Room room5 = Room(0.00, 3, 2, 3);
+    room5.addDoorRelativeFixWidth(0, 0.5, 0.9);
+    Room room6 = Room(6, 3, 4, 2);
+    room6.addDoorRelativeFixWidth(2, 0.5, 0.9);
+    Room room7 = Room(6, 5, 4, 2);
+    room7.addDoorRelativeFixWidth(2, 0.5, 0.9);
+    Room room8 = Room(0.00, 12, 6, 8);
+    room8.addDoorRelativeFixWidth(1, 0.5, 0.9);
+    Room room9 = Room(6, 10, 5, 5);
+    room9.addDoorRelativeFixWidth(1, 0.5, 0.9);
+    Room room10 = Room(6, 15, 5, 5);
+    room10.addDoorRelativeFixWidth(0, 0.5, 0.9);
+
+    std::vector<Room> rooms;
+    rooms.push_back(room0);
+
+    rooms.push_back(room1);
+    rooms.push_back(room2);
+    rooms.push_back(room3);
+    rooms.push_back(room4);
+    rooms.push_back(room5);
+    rooms.push_back(room6);
+    rooms.push_back(room7);
+    rooms.push_back(room8);
+    rooms.push_back(room9);
+    rooms.push_back(room10);
+
     return rooms;
 }
 

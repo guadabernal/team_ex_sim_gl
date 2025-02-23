@@ -57,7 +57,7 @@ int main() {
     // --------------- Create Simulation consts --------------------
     SimConsts simConsts;
     simConsts.cellSize = 0.05f;
-    simConsts.totalSize = 10.0f;
+    simConsts.totalSize = 20.0f;
     simConsts.nRobots = 10;
     simConsts.muHoleSize = 0.5f;
     simConsts.sigmaHoleSize = 0.2f;
