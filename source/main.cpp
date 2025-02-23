@@ -136,7 +136,7 @@ int main() {
                 //std::this_thread::sleep_for(std::chrono::nanoseconds(500));
                 lastRenderTime = std::chrono::steady_clock::now();
             }
-            std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+            //std::this_thread::sleep_for(std::chrono::nanoseconds(100));
         }
         running.store(false);
         });
