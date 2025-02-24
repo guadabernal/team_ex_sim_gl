@@ -304,34 +304,53 @@ inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFac
     }
 }
 
-inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
+inline void renderVineRobot(const Simulation& simulation, float scaleFactor)
+{
     const VineRobot& vine = simulation.vr;
-    if (!simulation.vrActive || vine.points.empty()) return;
-
-    // Draw the vine as a continuous line.
-    glColor3f(0.0f, 0.8f, 0.0f); // Bright green.
-    glLineWidth(2.0f);
-    glBegin(GL_LINE_STRIP);
-    for (const auto& p : vine.points) {
-        glVertex2f(p.first * scaleFactor, p.second * scaleFactor);
+    if (!simulation.vrActive || vine.points.empty()) {
+        return;
     }
-    glEnd();
 
-    // Draw a small circle at the tip.
+    // Draw each vine point as a small green circle
+    glColor3f(0.0f, 0.8f, 0.0f); // Bright green
+    constexpr float pointRadius = 1.0f;  // radius in pixels
+    constexpr int   circleSegments = 12;
+
+    for (size_t i = 0; i < vine.points.size(); ++i) {
+        float px = vine.points[i].first * scaleFactor;
+        float py = vine.points[i].second * scaleFactor;
+
+        glBegin(GL_TRIANGLE_FAN);
+        // Center of the circle
+        glVertex2f(px, py);
+        // Draw a fan of triangles to form a filled circle
+        for (int j = 0; j <= circleSegments; ++j) {
+            float angle = j * 2.0f * 3.14159265f / circleSegments;
+            float cx = px + std::cos(angle) * pointRadius;
+            float cy = py + std::sin(angle) * pointRadius;
+            glVertex2f(cx, cy);
+        }
+        glEnd();
+    }
+
+    // Optionally draw the tip in a different color/radius
     auto tip = vine.points.back();
-    glColor3f(0.0f, 0.5f, 0.0f); // Darker green.
-    const int numSegments = 20;
-    float radius = 5.0f; // Radius in pixels; adjust as needed.
-    float tipScreenX = tip.first * scaleFactor;
-    float tipScreenY = tip.second * scaleFactor;
+    float tipX = tip.first * scaleFactor;
+    float tipY = tip.second * scaleFactor;
+    glColor3f(0.0f, 0.5f, 0.0f); // Darker green
+    constexpr float tipRadius = 6.0f;
+
     glBegin(GL_TRIANGLE_FAN);
-    glVertex2f(tipScreenX, tipScreenY);
-    for (int i = 0; i <= numSegments; ++i) {
-        float angle = i * 2.0f * 3.14159265f / numSegments;
-        glVertex2f(tipScreenX + std::cos(angle) * radius, tipScreenY + std::sin(angle) * radius);
+    glVertex2f(tipX, tipY);
+    for (int i = 0; i <= circleSegments; ++i) {
+        float angle = i * 2.0f * 3.14159265f / circleSegments;
+        float cx = tipX + std::cos(angle) * tipRadius;
+        float cy = tipY + std::sin(angle) * tipRadius;
+        glVertex2f(cx, cy);
     }
     glEnd();
 }
+
 
 inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleFactor) {
     int rows = simulation.grid.interpolatedHeat.size();

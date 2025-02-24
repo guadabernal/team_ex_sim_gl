@@ -57,14 +57,14 @@ int main() {
     // --------------- Create Simulation consts --------------------
     SimConsts simConsts;
     simConsts.cellSize = 0.05f;
-    simConsts.totalSize = 20.0f;
+    simConsts.totalSize = 10.0f;
     simConsts.nRobots = 10;
     simConsts.muHoleSize = 0.5f;
     simConsts.sigmaHoleSize = 0.2f;
     simConsts.nHoles = 8;
     simConsts.nPeople = 4;
-    simConsts.maxTime = 30.0f;
-    simConsts.dt = 0.01f;
+    simConsts.maxTime = 60 * 60.0f;
+    simConsts.dt = 0.1f;
 
     // --------------- Create Simulation instance --------------------
     Simulation simulation(simConsts);
@@ -105,11 +105,12 @@ int main() {
             auto renderElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRenderTime);
 
             if (renderElapsed > std::chrono::milliseconds(50)) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                //std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                //std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 //std::this_thread::sleep_for(std::chrono::nanoseconds(500));
                 lastRenderTime = std::chrono::steady_clock::now();
             }
-            //std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+            std::this_thread::sleep_for(std::chrono::nanoseconds(100));
         }
         running.store(false);
         });

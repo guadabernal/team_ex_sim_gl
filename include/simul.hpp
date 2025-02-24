@@ -247,6 +247,7 @@ public:
         , rrActive(true)
         , vrActive(true)
         , nextRrSpawnIndex(0)
+        , vr(1.0f, 1.0f, 0.2*PI) //, vr(18.0f, 18.0f, 3 * 0.5 * PI)
     {
 
         initializeHeatMap(10.0f, 20.0f);
@@ -261,8 +262,8 @@ public:
 
         // populate robots
         rr.clear();
-        for (int i = 0; i < 10; i++) {
-            RescueRobot robot(1.5f, 1.5f, 0.0f, 3.0f * i, consts.cellSize, true, true);
+        for (int i = 0; i < 15; i++) {
+            RescueRobot robot(1.5f, 1.5f, 0.0f, 60.0f * i, consts.cellSize, true, true);
             rr.push_back(robot);
         }
         nextRrSpawnIndex = 0;
@@ -271,6 +272,7 @@ public:
         personPositions.push_back({ 7.0f, 5.8f });
         personPositions.push_back({ 19.0f, 6.5f });
         personPositions.push_back({ 12.0f, 15.3f });
+
     }
 
     bool update() {
@@ -280,9 +282,8 @@ public:
 
         // Update the vine robot if active.
         if (vrActive) {
-            vr.move(known_grid.occupancy, known_grid.cellSize, consts.dt);
-            vr.measure(known_grid.occupancy, grid.occupancy, grid.foundBy,
-                       known_grid.heat, grid.heat, known_grid.cellSize, t);
+            vr.move(known_grid.occupancy, known_grid.cellSize,consts.dt);
+            vr.measure(known_grid.occupancy, grid.occupancy, grid.foundBy, known_grid.heat, grid.heat, known_grid.cellSize, t);
         }
 
         // Update rescue robots if active.
@@ -341,6 +342,7 @@ public:
                     rr[nextRrSpawnIndex].y = spawnPoint.second;
                     rr[nextRrSpawnIndex].spawned = true;
                     nextRrSpawnIndex++;
+                    std::cout << "Spawned RR #" << nextRrSpawnIndex << std::endl;
                 }
             }
             // Update all spawned rescue robots.

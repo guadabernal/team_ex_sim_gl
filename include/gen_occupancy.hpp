@@ -83,6 +83,29 @@ struct OfficeDefinition
 OfficeDefinition office_01(float floor_width, float floor_height, float doorWidth)
 {
     OfficeDefinition layout;
+    Room room0(0.00f, 0.00f, 10.0f, 10.0f);
+    layout.rooms.push_back(room0);
+
+    Room room1 = Room(0.00, 0.00, 0.33, 0.50, floor_width, floor_height);
+    room1.addDoor(3, 0.33 / 2 * floor_width, doorWidth);
+    room1.addDoorRelativeFixWidth(0, 0.5, doorWidth);
+    Room room2 = Room(0.33, 0.00, 0.33, 0.50, floor_width, floor_height);
+    room2.addDoorRelativeFixWidth(3, 0.5, 2 * doorWidth);
+    Room room3 = Room(0.66, 0.00, 0.34, 0.50, floor_width, floor_height);
+    room3.addDoorRelativeFixWidth(2, 0.5, doorWidth);
+    Room room4 = Room(0.00, 0.50, 1.00, 0.50, floor_width, floor_height);
+
+    layout.rooms.push_back(room0);
+    layout.rooms.push_back(room1);
+    layout.rooms.push_back(room2);
+    layout.rooms.push_back(room3);
+    layout.rooms.push_back(room4);
+    return layout;
+}
+
+OfficeDefinition office_02(float floor_width, float floor_height, float doorWidth)
+{
+    OfficeDefinition layout;
     Room room0(0.00f, 0.00f, 20.0f, 20.0f);
     layout.rooms.push_back(room0);
 
