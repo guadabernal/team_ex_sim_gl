@@ -93,35 +93,39 @@ OfficeDefinition office_02(float floor_width, float floor_height, float doorWidt
 }
 
 
-// This function updates the occupancy grid to mark the holes.
-// It loops over each hole in the list and, for cells within the hole's circle,
-// if the cell is ground (value == 1) it sets it to 2.
-inline void updateOccupancyWithHoles(std::vector<std::vector<int>>&grid,
-    const std::vector<Hole>&holes,
-    float scale)
+inline void updateOccupancyWithHoles(std::vector<std::vector<int>>& grid, const std::vector<Hole>& holes, float scale)
 {
     int rows = grid.size();
     if (rows == 0) return;
     int cols = grid[0].size();
 
     for (const Hole& h : holes) {
-        // Compute the bounding box in grid indices.
-        int colStart = std::max(0, static_cast<int>((h.centerX - h.radius) / scale));
-        int colEnd = std::min(cols, static_cast<int>(std::ceil((h.centerX + h.radius) / scale)));
-        int rowStart = std::max(0, static_cast<int>((h.centerY - h.radius) / scale));
-        int rowEnd = std::min(rows, static_cast<int>(std::ceil((h.centerY + h.radius) / scale)));
-
-        for (int i = rowStart; i < rowEnd; i++) {
-            for (int j = colStart; j < colEnd; j++) {
-                // Compute the cell center coordinates in meters.
-                float cellCenterX = (j + 0.5f) * scale;
-                float cellCenterY = (i + 0.5f) * scale;
-                // Compute distance from cell center to the hole center.
-                float dx = cellCenterX - h.centerX;
-                float dy = cellCenterY - h.centerY;
-                float dist = std::sqrt(dx * dx + dy * dy);
-                if (dist <= h.radius) {
-                    // Only mark ground cells (assumed to be 1) as holes (set to 2).
+        if (h.shape == HoleShape::CIRCLE) {
+            int colStart = std::max(0, static_cast<int>((h.centerX - h.radius) / scale));
+            int colEnd = std::min(cols, static_cast<int>(std::ceil((h.centerX + h.radius) / scale)));
+            int rowStart = std::max(0, static_cast<int>((h.centerY - h.radius) / scale));
+            int rowEnd = std::min(rows, static_cast<int>(std::ceil((h.centerY + h.radius) / scale)));
+            for (int i = rowStart; i < rowEnd; i++) {
+                for (int j = colStart; j < colEnd; j++) {
+                    float cellCenterX = (j + 0.5f) * scale;
+                    float cellCenterY = (i + 0.5f) * scale;
+                    float dx = cellCenterX - h.centerX;
+                    float dy = cellCenterY - h.centerY;
+                    float dist = std::sqrt(dx * dx + dy * dy);
+                    if (dist <= h.radius) {
+                        if (grid[i][j] == 1)
+                            grid[i][j] = 2;
+                    }
+                }
+            }
+        }
+        else if (h.shape == HoleShape::RECTANGLE) {
+            int colStart = std::max(0, static_cast<int>(std::floor(h.topLeftX / scale)));
+            int colEnd = std::min(cols, static_cast<int>(std::ceil((h.topLeftX + h.width) / scale)));
+            int rowStart = std::max(0, static_cast<int>(std::floor(h.topLeftY / scale)));
+            int rowEnd = std::min(rows, static_cast<int>(std::ceil((h.topLeftY + h.height) / scale)));
+            for (int i = rowStart; i < rowEnd; i++) {
+                for (int j = colStart; j < colEnd; j++) {
                     if (grid[i][j] == 1)
                         grid[i][j] = 2;
                 }

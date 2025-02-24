@@ -259,7 +259,7 @@ public:
         , grid(s.getGridRows(), s.getGridRows(), s.cellSize)
         , consts(s)
         , rrActive(false)
-        , vrActive(true)
+        , vrActive(false)
         , nextRrSpawnIndex(0)
         , vr(s.vrX, s.vrY, s.vrAngle) //, vr(18.0f, 18.0f, 3 * 0.5 * PI)
     {
@@ -269,7 +269,8 @@ public:
         generateOfficeMap(known_grid.occupancy, consts.cellSize, 0.15f, 0.9f);
 
         // generate holes
-        holes = generateHolesList(s.getGridRows(), s.getGridCols(), s.cellSize, s.muHoleSize, s.sigmaHoleSize, s.nHoles);
+        //holes = generateHolesList(s.getGridRows(), s.getGridCols(), s.cellSize, s.muHoleSize, s.sigmaHoleSize, s.nHoles);
+        holes = generateHolesList_custom1();
         updateOccupancyWithHoles(known_grid.occupancy, holes, s.cellSize);
 
         // generate inclination maps
@@ -356,6 +357,7 @@ public:
                     rr[nextRrSpawnIndex].x = spawnPoint.first;
                     rr[nextRrSpawnIndex].y = spawnPoint.second;
                     rr[nextRrSpawnIndex].spawned = true;
+                    rr[nextRrSpawnIndex].spawnTime = t;
                     nextRrSpawnIndex++;
                     std::cout << "Spawned RR #" << nextRrSpawnIndex << std::endl;
                 }

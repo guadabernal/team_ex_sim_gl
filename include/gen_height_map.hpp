@@ -140,10 +140,7 @@ namespace HeightMapGenerator {
     //   h10: Height at the bottom-right corner of the rectangle (at (x1, y0))
     //   h01: Height at the top-left corner of the rectangle (at (x0, y1))
     //   h11: Height at the top-right corner of the rectangle (at (x1, y1))
-    inline void interpolateHeightInRect(std::vector<std::vector<float>>& height, float x0, float y0, float x1, float y1,
-        float h00, float h01, float h10, float h11,
-        float cellSize)
-    {
+    inline void interpolateHeightInRect(std::vector<std::vector<float>>& height, float x0, float y0, float x1, float y1, float h00, float h01, float h10, float h11, float cellSize) {
         int rows = height.size();
         if (rows == 0) return;
         int cols = height[0].size();
@@ -180,6 +177,32 @@ namespace HeightMapGenerator {
         }
     }
 
+    inline void addHoleRect(std::vector<std::vector<float>>& height,
+        float topLeftX, float topLeftY,
+        float width, float heightRect,
+        float depth, float cellSize)
+    {
+        int rows = height.size();
+        if (rows == 0) return;
+        int cols = height[0].size();
+
+        int colStart = std::max(0, static_cast<int>(std::floor(topLeftX / cellSize)));
+        int colEnd = std::min(cols, static_cast<int>(std::ceil((topLeftX + width) / cellSize)));
+        int rowStart = std::max(0, static_cast<int>(std::floor(topLeftY / cellSize)));
+        int rowEnd = std::min(rows, static_cast<int>(std::ceil((topLeftY + heightRect) / cellSize)));
+
+        for (int i = rowStart; i < rowEnd; i++) {
+            for (int j = colStart; j < colEnd; j++) {
+                float cellCenterX = (j + 0.5f) * cellSize;
+                float cellCenterY = (i + 0.5f) * cellSize;
+                if (cellCenterX >= topLeftX && cellCenterX <= topLeftX + width &&
+                    cellCenterY >= topLeftY && cellCenterY <= topLeftY + heightRect) {
+                    height[i][j] = -depth;
+                }
+            }
+        }
+    }
+
     inline void generateHeightMap(std::vector<std::vector<float>>& height,
         std::vector<std::vector<float>>& gradX,
         std::vector<std::vector<float>>& gradY,
@@ -190,25 +213,23 @@ namespace HeightMapGenerator {
         if (rows == 0) return;
         int cols = height[0].size();
 
-        // Initialize the height map to a baseline value (0.0 m)
-        for (int i = 0; i < rows; i++) {
-            for (int j = 0; j < cols; j++) {
+        // Initialize the height map to baseline (0.0 m)
+        for (int i = 0; i < rows; i++)
+            for (int j = 0; j < cols; j++)
                 height[i][j] = 0.0f;
-            }
-        }
 
-        interpolateHeightInRect(height, 8, 8, 13, 13, 0, 0, 0.5, 1, cellSize);
+        // (Optional: perform other interpolation here.)
 
-        // Apply each hole from the provided holes vector.
-        // Each hole is defined by its center (in meters), radius (in meters), and depth (in meters).
+        // Apply each hole.
         for (const Hole& h : holes) {
-            addHole(height, h.centerX, h.centerY, h.radius, h.depth, cellSize);
+            if (h.shape == HoleShape::CIRCLE)
+                addHole(height, h.centerX, h.centerY, h.radius, h.depth, cellSize);
+            else if (h.shape == HoleShape::RECTANGLE)
+                addHoleRect(height, h.topLeftX, h.topLeftY, h.width, h.height, h.depth, cellSize);
         }
 
-        // Finally, compute the gradient maps from the updated height map.
+        // Compute gradient maps.
         HeightMapGenerator::computeGradientMap(height, gradX, gradY, cellSize);
     }
-
-
 
 } // namespace HeightMapGenerator

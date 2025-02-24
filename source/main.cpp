@@ -259,23 +259,31 @@ int main() {
 
     int totalCells = simulation.grid.foundBy.size() * simulation.grid.foundBy[0].size();
     int coveredCells = 0;
-    
-    for (auto& robot : simulation.rr) {
-        
-        // Determine run time: if the robot died, use its time_drop; otherwise, the current simulation time.
-        float runtime = robot.dead ? (robot.timeDeath - robot.spawnTime) : (simulation.t - robot.spawnTime);
-        
-        int discoveredCount = 0;
-        for (const auto& row : simulation.grid.foundBy) {
-            for (int cell : row) {
-                if (cell == robot.id) discoveredCount++;
-            }
-        }
-        coveredCells += discoveredCount;
-        float percentExplored = (static_cast<float>(discoveredCount) / totalCells) * 100.0f;
 
-        std::cout << "Robot " << robot.id << ": Run time = " << runtime << " sec, " << (robot.dead ? "Fell " : "Alive") << ", % area exp = " << percentExplored << "%" << std::endl;
+    for (auto& robot : simulation.rr) {
+        if (!robot.spawned) {
+            std::cout << "Robot " << robot.id << ": Not spawned" << std::endl;
+        }
+        else {
+            // Compute runtime from the actual drop moment.
+            float runtime = robot.dead ? (robot.timeDeath - robot.spawnTime)
+                : (simulation.t - robot.spawnTime);
+
+            int discoveredCount = 0;
+            for (const auto& row : simulation.grid.foundBy) {
+                for (int cell : row) {
+                    if (cell == robot.id) discoveredCount++;
+                }
+            }
+            coveredCells += discoveredCount;
+            float percentExplored = (static_cast<float>(discoveredCount) / totalCells) * 100.0f;
+
+            std::cout << "Robot " << robot.id << ": Run time = " << runtime << " sec, "
+                << (robot.dead ? "Fell " : "Alive")
+                << ", % area exp = " << percentExplored << "%" << std::endl;
+        }
     }
+
 
     int vineCount = 0;
     for (const auto& row : simulation.grid.foundBy) {

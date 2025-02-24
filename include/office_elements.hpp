@@ -27,13 +27,8 @@ struct Room
         : x(x), y(y), w(w), h(h) {}
 
     // Alternative constructor using relative coords
-    Room(float relx, float rely, float relw, float relh,
-        float floor_width, float floor_height)
-        : x(relx* floor_width),
-        y(rely* floor_height),
-        w(relw* floor_width),
-        h(relh* floor_height)
-    {}
+    Room(float relx, float rely, float relw, float relh, float floor_width, float floor_height)
+        : x(relx* floor_width), y(rely* floor_height), w(relw* floor_width), h(relh* floor_height) {}
 
     void addDoor(int wall, float center, float width)
     {
@@ -73,12 +68,38 @@ struct Wall
     {}
 };
 
+enum class HoleShape {
+    CIRCLE,
+    RECTANGLE
+};
+
 struct Hole {
+    HoleShape shape;
+    
+    // For circular holes:
     float centerX;
     float centerY;
     float radius;
-    float depth;
+    
+    // For rectangular holes (defined by top–left point):
+    float topLeftX;
+    float topLeftY;
+    float width;
+    float height;
+    float depth;    // depth of the hole (positive value)
+
+    // Constructor for circ holes
+    Hole(HoleShape shape, float centerX, float centerY, float radius, float depth)
+        : shape(shape), centerX(centerX), centerY(centerY), radius(radius), depth(depth), topLeftX(0.0f), topLeftY(0.0f), width(0.0f), height(0.0f) {}
+
+    // Constructor for rect holes
+    Hole(HoleShape shape, float topLeftX, float topLeftY, float width, float height, float depth)
+        : shape(shape), topLeftX(topLeftX), topLeftY(topLeftY), width(width), height(height), depth(depth), centerX(0.0f), centerY(0.0f), radius(0.0f) {}
+
+    // Default constructor
+    Hole() : shape(HoleShape::CIRCLE), centerX(0.0f), centerY(0.0f), radius(0.0f), topLeftX(0.0f), topLeftY(0.0f), width(0.0f), height(0.0f), depth(0.0f) {}
 };
+
 
 // This function generates a list of holes.
 // Parameters:
@@ -88,44 +109,81 @@ struct Hole {
 //   sigma     - standard deviation for hole radius (in meters)
 //   numHoles  - number of holes to generate (if 0, a random count is chosen)
 //   depth     - the depth of the hole (in meters)
-inline std::vector<Hole> generateHolesList(int rows, int cols,
-                                           float scale,
-                                           float mu,
-                                           float sigma,
-                                           int numHoles,
-                                           float depth = 1.0f)
-{
+inline std::vector<Hole> generateHolesList(int rows, int cols, float scale, float mu, float sigma, int numHoles, float depth = 1.0f, bool rectangular = false) {
     std::vector<Hole> holes;
-    // Use a fixed seed (or vary it) for reproducibility.
     unsigned seed = 3;
     std::mt19937 rng(seed);
 
-    // If no hole count specified, pick a random count between 5 and 15.
     if (numHoles == 0) {
         std::uniform_int_distribution<int> holeCountDist(5, 15);
         numHoles = holeCountDist(rng);
     }
 
-    // Normal distribution for hole radius (in meters).
-    std::normal_distribution<float> radiusDist(mu, sigma);
-    // Uniform distributions to choose a random cell in the grid.
-    std::uniform_int_distribution<int> rowDist(0, rows - 1);
-    std::uniform_int_distribution<int> colDist(0, cols - 1);
-
-    for (int i = 0; i < numHoles; i++) {
-        int centerRow = rowDist(rng);
-        int centerCol = colDist(rng);
-        // Convert grid indices to meters (assuming each cell covers 'scale' meters)
-        float centerX = (centerCol + 0.5f) * scale;
-        float centerY = (centerRow + 0.5f) * scale;
-        // Sample hole radius in meters (ensure at least one cell)
-        float radiusMeters = std::max(radiusDist(rng), scale);
-        Hole h;
-        h.centerX = centerX;
-        h.centerY = centerY;
-        h.radius  = radiusMeters;
-        h.depth   = depth;
-        holes.push_back(h);
+    if (!rectangular) {
+        // Generate circular holes as before.
+        std::normal_distribution<float> radiusDist(mu, sigma);
+        std::uniform_int_distribution<int> rowDist(0, rows - 1);
+        std::uniform_int_distribution<int> colDist(0, cols - 1);
+        for (int i = 0; i < numHoles; i++) {
+            int centerRow = rowDist(rng);
+            int centerCol = colDist(rng);
+            float centerX = (centerCol + 0.5f) * scale;
+            float centerY = (centerRow + 0.5f) * scale;
+            float radiusMeters = std::max(radiusDist(rng), scale);
+            Hole h;
+            h.shape = HoleShape::CIRCLE;
+            h.centerX = centerX;
+            h.centerY = centerY;
+            h.radius = radiusMeters;
+            h.depth = depth;
+            // (width and height can be left unused or set to zero)
+            h.width = 0;
+            h.height = 0;
+            holes.push_back(h);
+        }
+    }
+    else {
+        // Generate rectangular holes.
+        std::normal_distribution<float> sizeDist(mu, sigma);
+        std::uniform_int_distribution<int> rowDist(0, rows - 1);
+        std::uniform_int_distribution<int> colDist(0, cols - 1);
+        for (int i = 0; i < numHoles; i++) {
+            int centerRow = rowDist(rng);
+            int centerCol = colDist(rng);
+            float centerX = (centerCol + 0.5f) * scale;
+            float centerY = (centerRow + 0.5f) * scale;
+            // For rectangles, sample half-sizes (ensuring at least one cell in size)
+            float halfWidth = std::max(sizeDist(rng), scale);
+            float halfHeight = std::max(sizeDist(rng), scale);
+            Hole h;
+            h.shape = HoleShape::RECTANGLE;
+            h.centerX = centerX;
+            h.centerY = centerY;
+            h.width = 2 * halfWidth;
+            h.height = 2 * halfHeight;
+            h.depth = depth;
+            // radius field is not used for rectangular holes.
+            h.radius = 0;
+            holes.push_back(h);
+        }
     }
     return holes;
 }
+
+inline std::vector<Hole> generateHolesList_custom1() {
+    std::vector<Hole> holes;
+    // Reserve space for 8 holes.
+    holes.reserve(8);
+
+    holes.push_back(Hole(HoleShape::RECTANGLE, 14.5f, 2.0f, 0.5f, 1.5f, 1.0f));
+    holes.push_back(Hole(HoleShape::RECTANGLE, 14.0f, 3.2f, 0.5f, 1.2f, 1.0f));
+    holes.push_back(Hole(HoleShape::RECTANGLE, 7.0f, 7.0f, 1.5f, 0.2f, 1.0f));
+    holes.push_back(Hole(HoleShape::RECTANGLE, 8.0f, 12.0f, 1.0f, 1.0f, 1.0f));
+
+    holes.push_back(Hole(HoleShape::CIRCLE, 3.0f, 16.0f, 1.0f, 1.0f));
+    holes.push_back(Hole(HoleShape::CIRCLE, 5.6f, 7.5f, 0.6f, 1.0f));
+    holes.push_back(Hole(HoleShape::CIRCLE, 4.5f, 3.5f, 0.5f, 1.0f));
+
+    return holes;
+}
+

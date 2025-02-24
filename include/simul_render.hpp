@@ -407,8 +407,6 @@ inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
     }
 }
 
-
-
 inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleFactor) {
     int rows = simulation.grid.interpolatedHeat.size();
     if (rows == 0) return;
@@ -471,16 +469,7 @@ inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleF
     }
 }
 
-#pragma once
-#include <simul.hpp>
-#include <GLFW/glfw3.h>
-#include <cmath>
-#include <vector>
-#include <vine_robot.hpp>
 
-// ... existing rendering functions ...
-
-// NEW: Render the gradient map (vector field) from the gradX and gradY grids.
 inline void renderGradientMap(const Simulation& simulation, float scaleFactor) {
     int rows = simulation.known_grid.gradX.size();
     if (rows == 0) return;
@@ -535,8 +524,6 @@ inline void renderGradientMap(const Simulation& simulation, float scaleFactor) {
         }
     }
 }
-
-
 
 
 inline void renderHeightMap(const Simulation& simulation, float scaleFactor, float fixedMin = -1, float fixedMax = 1) {
