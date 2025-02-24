@@ -80,7 +80,7 @@ struct OfficeDefinition
 };
 
 // ------------------- Example Layouts -------------------
-OfficeDefinition office_02(float floor_width, float floor_height, float doorWidth)
+OfficeDefinition office_01(float floor_width, float floor_height, float doorWidth)
 {
     OfficeDefinition layout;
     Room room0(0.00f, 0.00f, 5.0f, 5.0f);
@@ -103,7 +103,7 @@ OfficeDefinition office_02(float floor_width, float floor_height, float doorWidt
     return layout;
 }
 
-OfficeDefinition office_01(float floor_width, float floor_height, float doorWidth)
+OfficeDefinition office_02(float floor_width, float floor_height, float doorWidth)
 {
     OfficeDefinition layout;
     Room room0(0.00f, 0.00f, 20.0f, 20.0f);

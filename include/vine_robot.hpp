@@ -10,9 +10,9 @@
 
 // Constants.
 constexpr float PI = 3.14159265f;
-constexpr float TURN_INCREMENT = 10.0f * (PI / 180.0f);
-static constexpr float MIN_TURN_ANGLE = 20.0f * (PI / 180.0f); // 20°
-static constexpr float MAX_TURN_ANGLE = 45.0f * (PI / 180.0f); // 45°
+constexpr float TURN_INCREMENT = 5.0f * (PI / 180.0f);
+static constexpr float MIN_TURN_ANGLE = 10.0f * (PI / 180.0f); // 20°
+static constexpr float MAX_TURN_ANGLE = 20.0f * (PI / 180.0f); // 45°
 constexpr float COLLISION_REVERSE_DISTANCE = 1.5f;
 
 // Global variable for the turn line for plotting.
@@ -45,7 +45,7 @@ struct VineRobot {
 
     VineRobot(float startX, float startY, float initialAngleRad)
         : theta(initialAngleRad)
-        , expansionRate(0.05f)
+        , expansionRate(0.5f)
         , turning(false)
         , targetTurnAngle(0.0f)
         , remainingTurnAngle(0.0f)
@@ -305,121 +305,76 @@ public:
     // Uses signed lateral offsets so left/right turns are preserved.
     // dt is used to limit how far points are moved in one call.
     // -----------------------------------------
+    // Updated rebalancePoints(): use p₀ = points[0] and pₙ = points.back() as endpoints,
+// and choose the circle so that p₁ is as close as possible to lying on it.
     void rebalancePoints(const std::vector<std::vector<int>>& occupancy, float cellSize, float dt) {
         if (points.size() < 3)
             return;
-        auto p0 = points.front();
-        auto pN = points.back();
+
+        // Use p₀ (first point) and pₙ (last point) to define the chord.
+        const auto& p0 = points[0];
+        const auto& pN = points.back();
         float dx = pN.first - p0.first;
         float dy = pN.second - p0.second;
         float L = std::sqrt(dx * dx + dy * dy);
         if (L < 1e-6f)
-            return;  // chord too short
+            return; // Chord too short.
 
-        // Unit vector along the chord and its rightward normal.
-        float ux = dx / L, uy = dy / L;
-        std::pair<float, float> n0 = { -uy, ux };
+        // Midpoint and unit vector along the chord.
+        std::pair<float, float> M = { (p0.first + pN.first) / 2.0f, (p0.second + pN.second) / 2.0f };
+        std::pair<float, float> u = { dx / L, dy / L };
 
-        // Compute projections and signed lateral offsets.
-        std::vector<float> tvals(points.size(), 0.0f);
-        std::vector<float> sOffsets(points.size(), 0.0f);
-        for (size_t i = 0; i < points.size(); i++) {
-            float rx = points[i].first - p0.first;
-            float ry = points[i].second - p0.second;
-            float proj = rx * ux + ry * uy;
-            tvals[i] = proj;
-            float diffX = points[i].first - (p0.first + proj * ux);
-            float diffY = points[i].second - (p0.second + proj * uy);
-            sOffsets[i] = diffX * n0.first + diffY * n0.second;
-        }
+        // Perpendicular unit vector (pointing to the right).
+        std::pair<float, float> n = { -u.second, u.first };
 
-        // Compute the signed area under the curve (using trapezoidal rule).
-        float oldArea = 0.0f;
-        for (size_t i = 0; i < points.size() - 1; i++) {
-            float dt_val = tvals[i + 1] - tvals[i];
-            oldArea += dt_val * (sOffsets[i] + sOffsets[i + 1]) * 0.5f;
-        }
-        if (std::fabs(oldArea) < 1e-6f)
-            return; // nearly straight
+        // Use the second point (p₁) to choose the circle from the family of circles through p₀ and pₙ.
+        // Let A = p₁ - M.
+        const auto& p1 = points[1];
+        float Ax = p1.first - M.first;
+        float Ay = p1.second - M.second;
+        float A_norm_sq = Ax * Ax + Ay * Ay;
+        float halfL_sq = (L / 2.0f) * (L / 2.0f);
+        // p₁ lies exactly on the circle if: |A - t·n| = sqrt(halfL_sq + t²) (which is R)
+        // Solving for t yields: t = (|A|² - (L/2)²) / (2*(A·n)).
+        float dotAn = Ax * n.first + Ay * n.second;
+        float t = 0.0f;
+        if (std::fabs(dotAn) > 1e-6f)
+            t = (A_norm_sq - halfL_sq) / (2.0f * dotAn);
+        else
+            t = 0.0f; // If p₁ is nearly on the perpendicular bisector, choose center = M.
 
-        // Solve for segment height |h| so that the circular segment area equals |oldArea|.
-        auto segmentArea = [L](float h) -> float {
-            float R = (h * h + 0.25f * L * L) / (2.0f * std::fabs(h));
-            float term = (R - std::fabs(h)) / R;
-            if (term > 1.0f)
-                term = 1.0f;
-            if (term < -1.0f)
-                term = -1.0f;
-            return R * R * std::acos(term) - (R - std::fabs(h)) * std::sqrt(std::max(0.0f, 2.0f * R * std::fabs(h) - h * h));
-            };
+        // Circle center and radius.
+        std::pair<float, float> C = { M.first + t * n.first, M.second + t * n.second };
+        float R = std::sqrt(halfL_sq + t * t);
 
-        float minH = 1e-6f, maxH = L;
-        float targetArea = std::fabs(oldArea);
-        float bestH = 0.0f;
-        for (int iter = 0; iter < 50; iter++) {
-            float midH = 0.5f * (minH + maxH);
-            float A = segmentArea(midH);
-            if (std::fabs(A - targetArea) < 1e-6f) {
-                bestH = midH;
-                break;
-            }
-            if (A > targetArea)
-                maxH = midH;
-            else
-                minH = midH;
-            bestH = midH;
-        }
-        // Restore sign: if oldArea is negative, h should be negative.
-        float h = (oldArea >= 0.0f) ? bestH : -bestH;
+        // Compute angles from center to endpoints.
+        float angle0 = std::atan2(p0.second - C.second, p0.first - C.first);
+        float angleN = std::atan2(pN.second - C.second, pN.first - C.first);
+        // Compute the smallest angular difference in [-PI, PI].
+        float dAngle = angleN - angle0;
+        while (dAngle > PI) dAngle -= 2.0f * PI;
+        while (dAngle < -PI) dAngle += 2.0f * PI;
 
-        // Compute circle parameters.
-        float R_val = (h * h + 0.25f * L * L) / (2.0f * std::fabs(h));
-        float alpha = std::asin(0.5f * L / R_val);
-        float arcAngle = 2.0f * alpha;
-
-        // Select proper normal based on sign of h.
-        std::pair<float, float> n = (h >= 0.0f) ? n0 : std::make_pair(-n0.first, -n0.second);
-
-        // Compute circle center.
-        float midX = p0.first + 0.5f * L * ux;
-        float midY = p0.second + 0.5f * L * uy;
-        float centerX = midX + (R_val - std::fabs(h)) * n.first;
-        float centerY = midY + (R_val - std::fabs(h)) * n.second;
-
-        // Determine starting angle from center to p0.
-        float c0x = p0.first - centerX, c0y = p0.second - centerY;
-        float startAngle = std::atan2(c0y, c0x);
-
-        // Compute target positions for interior points along the arc.
+        // Compute target positions along the arc.
+        // p₀ and pₙ are fixed; interior points (indices 1 .. n–1) will be moved gradually.
         std::vector<std::pair<float, float>> targetPoints(points.size());
         targetPoints[0] = p0;
         targetPoints[points.size() - 1] = pN;
         for (size_t i = 1; i < points.size() - 1; i++) {
-            float s_i = arcAngle * (static_cast<float>(i) / (points.size() - 1));
-            float angle_i = startAngle + ((h >= 0.0f) ? s_i : -s_i);
-            float arcX = centerX + R_val * std::cos(angle_i);
-            float arcY = centerY + R_val * std::sin(angle_i);
-            targetPoints[i] = { arcX, arcY };
+            float fraction = static_cast<float>(i) / (points.size() - 1);
+            float targetAngle = angle0 + fraction * dAngle;
+            targetPoints[i] = { C.first + R * std::cos(targetAngle),
+                                C.second + R * std::sin(targetAngle) };
         }
 
-        // Instead of snapping, gradually move each interior point toward its target.
-        // Determine maximum allowed movement per call (based on expansionRate and dt).
+        // Gradually move each interior point toward its target.
         float allowedStep = expansionRate * dt;
-        // Optionally, you might scale allowedStep by a factor (<1) if needed.
-        int pivotIndex = -1;
-        for (size_t i = 0; i < points.size() - 1; i++) {
-            if (isColliding(points[i], occupancy, cellSize)) {
-                pivotIndex = static_cast<int>(i);
-            }
-        }
-        size_t startIdx = (pivotIndex != -1) ? pivotIndex + 1 : 1;
-        for (size_t i = startIdx; i < points.size() - 1; i++) {
+        for (size_t i = 1; i < points.size() - 1; i++) {
             float diffX = targetPoints[i].first - points[i].first;
             float diffY = targetPoints[i].second - points[i].second;
             float dist = std::sqrt(diffX * diffX + diffY * diffY);
-            if (dist <= allowedStep || dist < 1e-6f) {
+            if (dist <= allowedStep || dist < 1e-6f)
                 points[i] = targetPoints[i];
-            }
             else {
                 float ratio = allowedStep / dist;
                 points[i].first += diffX * ratio;
@@ -427,6 +382,7 @@ public:
             }
         }
     }
+
 };
 
 #endif

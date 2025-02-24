@@ -244,10 +244,10 @@ public:
         : known_grid(s.getGridRows(), s.getGridCols(), s.cellSize)
         , grid(s.getGridRows(), s.getGridRows(), s.cellSize)
         , consts(s)
-        , rrActive(true)
+        , rrActive(false)
         , vrActive(true)
         , nextRrSpawnIndex(0)
-        , vr(18.0f, 18.0f, 0.2*PI + PI) //, vr(18.0f, 18.0f, 3 * 0.5 * PI)
+        , vr(1.2f, 1.2f, 0.4*PI) //, vr(18.0f, 18.0f, 3 * 0.5 * PI)
     {
 
         initializeHeatMap(10.0f, 20.0f);
