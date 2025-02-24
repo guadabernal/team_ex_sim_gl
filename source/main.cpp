@@ -57,7 +57,7 @@ int main() {
     // --------------- Create Simulation consts --------------------
     SimConsts simConsts;
     simConsts.cellSize = 0.05f;
-    simConsts.totalSize = 5.0f;
+    simConsts.totalSize = 20.0f;
     simConsts.nRobots = 10;
     simConsts.muHoleSize = 0.5f;
     simConsts.sigmaHoleSize = 0.2f;
@@ -65,6 +65,13 @@ int main() {
     simConsts.nPeople = 4;
     simConsts.maxTime = 30 * 60.0f;
     simConsts.dt = 0.1f;
+    simConsts.vrX = 1.2f;
+    simConsts.vrY = 1.2f;
+    simConsts.vrAngle = 0.4 * PI;
+    simConsts.rrX = 1.5f;
+    simConsts.rrY = 1.5f;
+    simConsts.rrAngle = 0;
+    simConsts.rrTime = 60.0f;
 
     // --------------- Create Simulation instance --------------------
     Simulation simulation(simConsts);

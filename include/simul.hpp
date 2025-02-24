@@ -10,6 +10,8 @@
 
 struct Grid {
     float cellSize;  // Size of each cell in meters
+    int rows = 0;
+    int cols = 0;
     std::vector<std::vector<float>> co2;
     std::vector<std::vector<float>> heat;
     std::vector<std::vector<int>> ground_type;
@@ -22,7 +24,9 @@ struct Grid {
 
     // Constructor: now initializes gradX and gradY as well.
     Grid(int rows, int cols, float cellSize)
-        : co2(rows, std::vector<float>(cols, 0.0f)),
+        : 
+        rows(rows), cols(cols),
+        co2(rows, std::vector<float>(cols, 0.0f)),
         heat(rows, std::vector<float>(cols, -1)),
         interpolatedHeat(rows, std::vector<float>(cols, 0.0f)),
         ground_type(rows, std::vector<int>(cols, 0)),
@@ -217,6 +221,15 @@ struct SimConsts
     int nPeople = 0;
     float maxTime = 30;      // simulation maximum time
     float dt = 0.01;
+    float rrEnable = false;
+    float vrEnable = false;
+    float vrX = -1;
+    float vrY = -1;
+    float vrAngle = -1;
+    float rrX = -1;
+    float rrY = -1;
+    float rrAngle = -1;
+    float rrTime = -1;
     int getGridCols() const { return static_cast<int>(totalSize / cellSize); }
     int getGridRows() const { return static_cast<int>(totalSize / cellSize); }
 };
@@ -236,6 +249,7 @@ public:
 
     float t = 0;
     std::vector<std::pair<float, float>> personPositions;
+    std::vector<Hole> holes;
 
     int nextRrSpawnIndex;
     int updateCounter = 0;
@@ -247,7 +261,7 @@ public:
         , rrActive(false)
         , vrActive(true)
         , nextRrSpawnIndex(0)
-        , vr(1.2f, 1.2f, 0.4*PI) //, vr(18.0f, 18.0f, 3 * 0.5 * PI)
+        , vr(s.vrX, s.vrY, s.vrAngle) //, vr(18.0f, 18.0f, 3 * 0.5 * PI)
     {
 
         initializeHeatMap(10.0f, 20.0f);
@@ -255,15 +269,16 @@ public:
         generateOfficeMap(known_grid.occupancy, consts.cellSize, 0.15f, 0.9f);
 
         // generate holes
-        addHoles(known_grid.occupancy, consts.cellSize, consts.muHoleSize, consts.sigmaHoleSize, consts.nHoles);
+        holes = generateHolesList(s.getGridRows(), s.getGridCols(), s.cellSize, s.muHoleSize, s.sigmaHoleSize, s.nHoles);
+        updateOccupancyWithHoles(known_grid.occupancy, holes, s.cellSize);
 
         // generate inclination maps
-        HeightMapGenerator::generateHeightMap(known_grid.height, known_grid.gradX, known_grid.gradY, consts.cellSize);
+        HeightMapGenerator::generateHeightMap(known_grid.height, known_grid.gradX, known_grid.gradY, consts.cellSize, holes);
 
         // populate robots
         rr.clear();
         for (int i = 0; i < 15; i++) {
-            RescueRobot robot(1.5f, 1.5f, 0.0f, 60.0f * i, consts.cellSize, true, true);
+            RescueRobot robot(s.rrX, s.rrY, s.rrAngle, s.rrTime * i, consts.cellSize, true, true);
             rr.push_back(robot);
         }
         nextRrSpawnIndex = 0;

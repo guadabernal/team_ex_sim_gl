@@ -7,13 +7,14 @@
 #include <queue>
 #include <cmath>
 #include <limits>
+#include <office_elements.hpp>
 
 namespace HeightMapGenerator {
 
     // A constant to represent undefined height values.
     const float UNDEFINED_HEIGHT = std::numeric_limits<float>::quiet_NaN();
 
-    // Existing interpolateHeightMap function…
+    // Existing interpolateHeightMap functionï¿½
     inline void interpolateHeightMap(const std::vector<std::vector<float>>& height,
         std::vector<std::vector<float>>& interpolated,
         float cellSize) {
@@ -90,45 +91,124 @@ namespace HeightMapGenerator {
         }
     }
 
-    inline void generateHeightMap(std::vector<std::vector<float>>& height,
-        std::vector<std::vector<float>>& gradX,
-        std::vector<std::vector<float>>& gradY,
+    inline void addHole(std::vector<std::vector<float>>& height,
+        float centerX, float centerY,
+        float radius, float depth,
         float cellSize)
     {
         int rows = height.size();
         if (rows == 0) return;
         int cols = height[0].size();
 
+        // Convert the center from meters to grid coordinates.
+        float centerCol_f = centerX / cellSize;
+        float centerRow_f = centerY / cellSize;
+        int centerCol = static_cast<int>(centerCol_f);
+        int centerRow = static_cast<int>(centerRow_f);
+
+        // Determine the radius in grid cells.
+        float radius_cells = radius / cellSize;
+
+        // Determine the bounding box in grid indices.
+        int rowStart = std::max(0, centerRow - static_cast<int>(radius_cells));
+        int rowEnd = std::min(rows, centerRow + static_cast<int>(radius_cells) + 1);
+        int colStart = std::max(0, centerCol - static_cast<int>(radius_cells));
+        int colEnd = std::min(cols, centerCol + static_cast<int>(radius_cells) + 1);
+
+        for (int i = rowStart; i < rowEnd; i++) {
+            for (int j = colStart; j < colEnd; j++) {
+                // Compute the cell's center coordinates in meters.
+                float cellCenterX = (j + 0.5f) * cellSize;
+                float cellCenterY = (i + 0.5f) * cellSize;
+                // Compute the distance from the cell center to the hole center.
+                float dx = cellCenterX - centerX;
+                float dy = cellCenterY - centerY;
+                float dist = std::sqrt(dx * dx + dy * dy);
+                if (dist <= radius) {
+                    // Use a squared falloff: deeper near the center and shallower near the edge.
+                    //float factor = 1.0f - (dist / radius) * (dist / radius) * (dist / radius);
+                    float factor = 1.0f;
+                    height[i][j] = -depth * factor;
+                }
+
+            }
+        }
+    }
+
+    // Parameters for bilinear interpolation:
+    //   h00: Height at the bottom-left corner of the rectangle (at (x0, y0))
+    //   h10: Height at the bottom-right corner of the rectangle (at (x1, y0))
+    //   h01: Height at the top-left corner of the rectangle (at (x0, y1))
+    //   h11: Height at the top-right corner of the rectangle (at (x1, y1))
+    inline void interpolateHeightInRect(std::vector<std::vector<float>>& height, float x0, float y0, float x1, float y1,
+        float h00, float h01, float h10, float h11,
+        float cellSize)
+    {
+        int rows = height.size();
+        if (rows == 0) return;
+        int cols = height[0].size();
+
+        // Convert the physical rectangle bounds (meters) to grid indices.
+        int colStart = std::max(0, static_cast<int>(std::floor(x0 / cellSize)));
+        int colEnd = std::min(cols, static_cast<int>(std::ceil(x1 / cellSize)));
+        int rowStart = std::max(0, static_cast<int>(std::floor(y0 / cellSize)));
+        int rowEnd = std::min(rows, static_cast<int>(std::ceil(y1 / cellSize)));
+
+        // Compute the width and height of the rectangle in meters.
+        float width_m = x1 - x0;
+        float height_m = y1 - y0;
+
+        // Iterate over all cells in the rectangular region.
+        for (int i = rowStart; i < rowEnd; i++) {
+            for (int j = colStart; j < colEnd; j++) {
+                // Compute the cell center in meters.
+                float cellCenterX = (j + 0.5f) * cellSize;
+                float cellCenterY = (i + 0.5f) * cellSize;
+                // Clamp cell center coordinates to the rectangle, in case of rounding.
+                cellCenterX = std::max(x0, std::min(cellCenterX, x1));
+                cellCenterY = std::max(y0, std::min(cellCenterY, y1));
+                // Compute normalized coordinates u and v in [0,1].
+                float u = (cellCenterX - x0) / width_m;
+                float v = (cellCenterY - y0) / height_m;
+                // Bilinear interpolation:
+                float hVal = h00 * (1.0f - u) * (1.0f - v)
+                    + h10 * u * (1.0f - v)
+                    + h01 * (1.0f - u) * v
+                    + h11 * u * v;
+                height[i][j] = hVal;
+            }
+        }
+    }
+
+    inline void generateHeightMap(std::vector<std::vector<float>>& height,
+        std::vector<std::vector<float>>& gradX,
+        std::vector<std::vector<float>>& gradY,
+        float cellSize,
+        const std::vector<Hole>& holes)
+    {
+        int rows = height.size();
+        if (rows == 0) return;
+        int cols = height[0].size();
+
+        // Initialize the height map to a baseline value (0.0 m)
         for (int i = 0; i < rows; i++) {
             for (int j = 0; j < cols; j++) {
-                float norm = (i + j) / float(rows + cols - 2);
-                height[i][j] = -0.2f + norm * 1.0f;
+                height[i][j] = 0.0f;
             }
         }
 
-        for (int i = 0; i < rows/2; i++) {
-            for (int j = 0; j < cols/2; j++) {
-                float norm = (i) / float(rows - 2);
-                height[i][j] = -0.2f + norm * 1.0f;
-            }
+        interpolateHeightInRect(height, 8, 8, 13, 13, 0, 0, 0.5, 1, cellSize);
+
+        // Apply each hole from the provided holes vector.
+        // Each hole is defined by its center (in meters), radius (in meters), and depth (in meters).
+        for (const Hole& h : holes) {
+            addHole(height, h.centerX, h.centerY, h.radius, h.depth, cellSize);
         }
 
-
-        // Introduce a circular hole region (discontinuity) at the center.
-        int centerRow = rows / 2;
-        int centerCol = cols / 2;
-        int holeRadius = std::min(rows, cols) / 10;  // hole covers about 10% of the grid dimension.
-        for (int i = centerRow - holeRadius; i <= centerRow + holeRadius; i++) {
-            for (int j = centerCol - holeRadius; j <= centerCol + holeRadius; j++) {
-                if (i >= 0 && i < rows && j >= 0 && j < cols) {
-                    float dist = std::sqrt((i - centerRow) * (i - centerRow) +
-                        (j - centerCol) * (j - centerCol));
-                    if (dist <= holeRadius)
-                        height[i][j] = -1;
-                }
-            }
-        }
+        // Finally, compute the gradient maps from the updated height map.
         HeightMapGenerator::computeGradientMap(height, gradX, gradY, cellSize);
     }
+
+
 
 } // namespace HeightMapGenerator

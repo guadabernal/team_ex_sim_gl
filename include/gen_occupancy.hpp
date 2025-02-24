@@ -5,73 +5,8 @@
 #include <queue>
 #include <cmath>
 #include <cassert>
+#include <office_elements.hpp>
 
-struct Door
-{
-    // wall index convention: 0:right, 1:top, 2:left, 3:bottom
-    int wall;
-    float offset;
-    float width;
-
-    Door(int wall, float offset, float width)
-        : wall(wall), offset(offset), width(width) {}
-};
-
-struct Room
-{
-    float x, y;   // top-left coordinates in meters
-    float w, h;   // width and height in meters
-    std::vector<Door> doors;
-
-    Room(float x, float y, float w, float h)
-        : x(x), y(y), w(w), h(h) {}
-
-    // Alternative constructor using relative coords
-    Room(float relx, float rely, float relw, float relh,
-        float floor_width, float floor_height)
-        : x(relx* floor_width),
-        y(rely* floor_height),
-        w(relw* floor_width),
-        h(relh* floor_height)
-    {}
-
-    void addDoor(int wall, float center, float width)
-    {
-        Door door(wall, center - width / 2.0f, width);
-        doors.push_back(door);
-    }
-
-    // center and width are relative (0..1) to that edge's length
-    void addDoorRelative(int wall, float relcenter, float relWidth)
-    {
-        float center = (wall == 0 || wall == 2)
-            ? (y + relcenter * h)
-            : (x + relcenter * w);
-        float width = (wall == 0 || wall == 2)
-            ? (relWidth * h)
-            : (relWidth * w);
-        addDoor(wall, center, width);
-    }
-
-    // center is relative, but door width is a fixed meter measure
-    void addDoorRelativeFixWidth(int wall, float relcenter, float fixWidth)
-    {
-        float center = (wall == 0 || wall == 2)
-            ? (y + relcenter * h)
-            : (x + relcenter * w);
-        addDoor(wall, center, fixWidth);
-    }
-};
-
-struct Wall
-{
-    float x1, y1; // start point
-    float x2, y2; // end point
-
-    Wall(float x1, float y1, float x2, float y2)
-        : x1(x1), y1(y1), x2(x2), y2(y2)
-    {}
-};
 
 struct OfficeDefinition
 {
@@ -158,48 +93,37 @@ OfficeDefinition office_02(float floor_width, float floor_height, float doorWidt
 }
 
 
-inline void addHoles(std::vector<std::vector<int>>& grid, float scale, float mu, float sigma, int numHoles)
+// This function updates the occupancy grid to mark the holes.
+// It loops over each hole in the list and, for cells within the hole's circle,
+// if the cell is ground (value == 1) it sets it to 2.
+inline void updateOccupancyWithHoles(std::vector<std::vector<int>>&grid,
+    const std::vector<Hole>&holes,
+    float scale)
 {
     int rows = grid.size();
     if (rows == 0) return;
     int cols = grid[0].size();
 
-    // Seed random number generator with a fixed or variable seed
-    unsigned seed = 3;
-    std::mt19937 rng(seed);
+    for (const Hole& h : holes) {
+        // Compute the bounding box in grid indices.
+        int colStart = std::max(0, static_cast<int>((h.centerX - h.radius) / scale));
+        int colEnd = std::min(cols, static_cast<int>(std::ceil((h.centerX + h.radius) / scale)));
+        int rowStart = std::max(0, static_cast<int>((h.centerY - h.radius) / scale));
+        int rowEnd = std::min(rows, static_cast<int>(std::ceil((h.centerY + h.radius) / scale)));
 
-    // If no hole count was specified, pick a random count
-    if (numHoles == 0) {
-        std::uniform_int_distribution<int> holeCountDist(5, 15);
-        numHoles = holeCountDist(rng);
-    }
-
-    // Normal distribution for hole radius (in meters).
-    std::normal_distribution<float> radiusDist(mu, sigma);
-
-    for (int i = 0; i < numHoles; i++) {
-        // Pick a random center
-        std::uniform_int_distribution<int> rowDist(0, rows - 1);
-        std::uniform_int_distribution<int> colDist(0, cols - 1);
-        int centerRow = rowDist(rng);
-        int centerCol = colDist(rng);
-
-        // Sample hole radius in meters (ensure at least 1 cell)
-        float radiusMeters = std::max(radiusDist(rng), scale);
-        int radiusCells = static_cast<int>(std::ceil(radiusMeters / scale));
-
-        // Mark cells within that circular radius as holes (value=2)
-        for (int r = std::max(0, centerRow - radiusCells);
-            r < std::min(rows, centerRow + radiusCells + 1); r++)
-        {
-            for (int c = std::max(0, centerCol - radiusCells);
-                c < std::min(cols, centerCol + radiusCells + 1); c++)
-            {
-                int dr = r - centerRow;
-                int dc = c - centerCol;
-                if (dr * dr + dc * dc <= radiusCells * radiusCells) {
-                    if (grid[r][c] == 1) // only overwrite ground
-                        grid[r][c] = 2;
+        for (int i = rowStart; i < rowEnd; i++) {
+            for (int j = colStart; j < colEnd; j++) {
+                // Compute the cell center coordinates in meters.
+                float cellCenterX = (j + 0.5f) * scale;
+                float cellCenterY = (i + 0.5f) * scale;
+                // Compute distance from cell center to the hole center.
+                float dx = cellCenterX - h.centerX;
+                float dy = cellCenterY - h.centerY;
+                float dist = std::sqrt(dx * dx + dy * dy);
+                if (dist <= h.radius) {
+                    // Only mark ground cells (assumed to be 1) as holes (set to 2).
+                    if (grid[i][j] == 1)
+                        grid[i][j] = 2;
                 }
             }
         }
@@ -295,7 +219,7 @@ inline void generateOfficeMap(std::vector<std::vector<int>>& grid, float scale, 
     }
 
     // 2) Get both rooms and explicit walls from the layout
-    OfficeDefinition def = office_01(cols * scale, rows * scale, doorWidth);
+    OfficeDefinition def = office_02(cols * scale, rows * scale, doorWidth);
     auto& rooms = def.rooms;
     auto& extraWalls = def.walls;
 
