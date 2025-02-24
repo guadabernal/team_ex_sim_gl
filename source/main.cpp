@@ -219,6 +219,7 @@ int main() {
             renderRobots(simulation, renderScaleFactor);
             renderVineRobot(simulation, renderScaleFactor);
             renderGradientMap(simulation, renderScaleFactor);
+            //renderHeightMap(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
@@ -397,7 +398,8 @@ int main() {
         glLoadIdentity();
         renderRobots(simulation, renderScaleFactor);
         renderVineRobot(simulation, renderScaleFactor);
-        renderGradientMap(simulation, renderScaleFactor);
+        //renderGradientMap(simulation, renderScaleFactor);
+        renderHeightMap(simulation, renderScaleFactor);
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();

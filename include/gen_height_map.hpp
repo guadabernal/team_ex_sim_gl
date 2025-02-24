@@ -90,8 +90,6 @@ namespace HeightMapGenerator {
         }
     }
 
-
-
     inline void generateHeightMap(std::vector<std::vector<float>>& height,
         std::vector<std::vector<float>>& gradX,
         std::vector<std::vector<float>>& gradY,
@@ -101,16 +99,20 @@ namespace HeightMapGenerator {
         if (rows == 0) return;
         int cols = height[0].size();
 
-        // Generate a synthetic height map with hills and valleys.
-        // This will give you variation so the gradient magnitude is interesting.
         for (int i = 0; i < rows; i++) {
             for (int j = 0; j < cols; j++) {
-                // Create a pattern using sine and cosine.
-                float x = j * cellSize;
-                float y = i * cellSize;
-                height[i][j] = sinf(x * 0.5f) * cosf(y * 0.5f);
+                float norm = (i + j) / float(rows + cols - 2);
+                height[i][j] = -0.2f + norm * 1.0f;
             }
         }
+
+        for (int i = 0; i < rows/2; i++) {
+            for (int j = 0; j < cols/2; j++) {
+                float norm = (i) / float(rows - 2);
+                height[i][j] = -0.2f + norm * 1.0f;
+            }
+        }
+
 
         // Introduce a circular hole region (discontinuity) at the center.
         int centerRow = rows / 2;
@@ -122,27 +124,11 @@ namespace HeightMapGenerator {
                     float dist = std::sqrt((i - centerRow) * (i - centerRow) +
                         (j - centerCol) * (j - centerCol));
                     if (dist <= holeRadius)
-                        height[i][j] = std::numeric_limits<float>::quiet_NaN();
+                        height[i][j] = -1;
                 }
             }
         }
-
-        // Compute the gradient components from the height map.
-        // Cells adjacent to NaN values will be flagged appropriately.
         HeightMapGenerator::computeGradientMap(height, gradX, gradY, cellSize);
-
-        // Override the gradient values in the region where:
-        // x is between 1m and 2m, and y is between 1m and 2m.
-        int colStart = static_cast<int>(1.0f / cellSize);
-        int colEnd = static_cast<int>(2.0f / cellSize);
-        int rowStart = static_cast<int>(1.0f / cellSize);
-        int rowEnd = static_cast<int>(2.0f / cellSize);
-        for (int i = rowStart; i < rowEnd; ++i) {
-            for (int j = colStart; j < colEnd; ++j) {
-                gradX[i][j] = 1.0f;  // constant gradient value along x
-                gradY[i][j] = 1.0f;  // constant gradient value along y
-            }
-        }
     }
 
 } // namespace HeightMapGenerator

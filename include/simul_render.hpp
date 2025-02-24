@@ -5,6 +5,9 @@
 #include <vector>
 #include <vine_robot.hpp>
 
+#include <algorithm>
+#include <iomanip>
+
 inline void renderRobots(const Simulation& simulation, float scaleFactor) {
     for (const auto& robot : simulation.rr) {
         if (!robot.spawned || robot.dead && robot.battery > 0)
@@ -430,29 +433,39 @@ inline void renderGradientMap(const Simulation& simulation, float scaleFactor) {
     int cols = simulation.known_grid.gradX[0].size();
     float cellSize = simulation.known_grid.cellSize * scaleFactor;
 
-    // Define the maximum expected gradient magnitude for normalization.
-    const float maxMagnitude = 2.0f; // Adjust this value as needed
+    // Maximum magnitude when each component is capped to 1: sqrt(1^2 + 1^2)
+    const float cappedMax = 0.1f;
 
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
+            // Get original gradients.
             float gx = simulation.known_grid.gradX[i][j];
             float gy = simulation.known_grid.gradY[i][j];
+
+            // Cap each component to maximum absolute value of 1.
+            if (std::fabs(gx) > 1.0f)
+                gx = (gx > 0) ? 1.0f : -1.0f;
+            if (std::fabs(gy) > 1.0f)
+                gy = (gy > 0) ? 1.0f : -1.0f;
+
             float magnitude;
             if (!std::isfinite(gx) || !std::isfinite(gy)) {
-                // Render discontinuities (or undefined gradients) as black.
-                magnitude = maxMagnitude;
+                // Use the capped maximum if any component is non-finite.
+                magnitude = cappedMax;
             }
             else {
                 magnitude = std::sqrt(gx * gx + gy * gy);
             }
-            // Normalize magnitude to [0,1]
-            float norm = magnitude / maxMagnitude;
+
+            // Normalize the magnitude to [0,1] using the capped maximum.
+            float norm = magnitude / cappedMax;
             if (norm > 1.0f) norm = 1.0f;
+
             // Map the normalized value to a color gradient.
-            // For example: flat areas (norm=0) are light blue, steep areas (norm=1) are red.
-            float r = norm;             // Red increases with slope
-            float g = 1.0f - norm;        // Green decreases with slope
-            float b = 1.0f - norm * 0.5f; // Blue slightly decreases
+            // Here, flat areas (norm = 0) are light blue, steep areas (norm = 1) are red.
+            float r = norm;             // Red increases with slope.
+            float g = 1.0f - norm;        // Green decreases with slope.
+            float b = 1.0f - norm * 0.5f; // Blue slightly decreases.
             glColor3f(r, g, b);
 
             float left = j * cellSize;
@@ -468,5 +481,70 @@ inline void renderGradientMap(const Simulation& simulation, float scaleFactor) {
         }
     }
 }
+
+
+
+
+inline void renderHeightMap(const Simulation& simulation, float scaleFactor, float fixedMin = -1, float fixedMax = 1) {
+    int rows = simulation.known_grid.height.size();
+    if (rows == 0) return;
+    int cols = simulation.known_grid.height[0].size();
+    float cellSize = simulation.known_grid.cellSize * scaleFactor;
+
+    // Use fixed min and max values for normalization.
+    float minHeight = fixedMin;
+    float maxHeight = fixedMax;
+
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            float h = simulation.known_grid.height[i][j];
+            if (!std::isfinite(h)) {
+                // Render undefined (NaN) heights as black.
+                glColor3f(0.0f, 0.0f, 0.0f);
+            }
+            else {
+                // Normalize using the fixed range.
+                float norm = (h - minHeight) / (maxHeight - minHeight);
+                norm = std::clamp(norm, 0.0f, 1.0f);
+                float r, g, b;
+                // Use a "jet" colormap: blue -> cyan -> green -> yellow -> red.
+                if (norm < 0.25f) {
+                    r = 0.0f;
+                    g = 4.0f * norm;
+                    b = 1.0f;
+                }
+                else if (norm < 0.5f) {
+                    r = 0.0f;
+                    g = 1.0f;
+                    b = 1.0f - 4.0f * (norm - 0.25f);
+                }
+                else if (norm < 0.75f) {
+                    r = 4.0f * (norm - 0.5f);
+                    g = 1.0f;
+                    b = 0.0f;
+                }
+                else {
+                    r = 1.0f;
+                    g = 1.0f - 4.0f * (norm - 0.75f);
+                    b = 0.0f;
+                }
+                glColor3f(r, g, b);
+            }
+
+            float left = j * cellSize;
+            float top = i * cellSize;
+            float right = left + cellSize;
+            float bottom = top + cellSize;
+
+            glBegin(GL_QUADS);
+            glVertex2f(left, top);
+            glVertex2f(right, top);
+            glVertex2f(right, bottom);
+            glVertex2f(left, bottom);
+            glEnd();
+        }
+    }
+}
+
 
 
