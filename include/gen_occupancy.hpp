@@ -80,10 +80,10 @@ struct OfficeDefinition
 };
 
 // ------------------- Example Layouts -------------------
-OfficeDefinition office_01(float floor_width, float floor_height, float doorWidth)
+OfficeDefinition office_02(float floor_width, float floor_height, float doorWidth)
 {
     OfficeDefinition layout;
-    Room room0(0.00f, 0.00f, 10.0f, 10.0f);
+    Room room0(0.00f, 0.00f, 5.0f, 5.0f);
     layout.rooms.push_back(room0);
 
     Room room1 = Room(0.00, 0.00, 0.33, 0.50, floor_width, floor_height);
@@ -97,13 +97,13 @@ OfficeDefinition office_01(float floor_width, float floor_height, float doorWidt
 
     layout.rooms.push_back(room0);
     layout.rooms.push_back(room1);
-    layout.rooms.push_back(room2);
+    /*layout.rooms.push_back(room2);
     layout.rooms.push_back(room3);
-    layout.rooms.push_back(room4);
+    layout.rooms.push_back(room4);*/
     return layout;
 }
 
-OfficeDefinition office_02(float floor_width, float floor_height, float doorWidth)
+OfficeDefinition office_01(float floor_width, float floor_height, float doorWidth)
 {
     OfficeDefinition layout;
     Room room0(0.00f, 0.00f, 20.0f, 20.0f);

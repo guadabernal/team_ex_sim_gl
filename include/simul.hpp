@@ -247,7 +247,7 @@ public:
         , rrActive(true)
         , vrActive(true)
         , nextRrSpawnIndex(0)
-        , vr(1.0f, 1.0f, 0.2*PI) //, vr(18.0f, 18.0f, 3 * 0.5 * PI)
+        , vr(18.0f, 18.0f, 0.2*PI + PI) //, vr(18.0f, 18.0f, 3 * 0.5 * PI)
     {
 
         initializeHeatMap(10.0f, 20.0f);
@@ -361,7 +361,7 @@ public:
                 updateCounter++;
                 // Only update the interpolated heat map every 50 iterations.
                 if (updateCounter % 50 == 0) {
-                    updateInterpolatedHeatMap(grid);
+                    //updateInterpolatedHeatMap(grid);
                     //std::cout << "updated heat map" << std::endl;
                 }
 

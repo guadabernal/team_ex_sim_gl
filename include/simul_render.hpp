@@ -307,26 +307,22 @@ inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFac
     }
 }
 
-inline void renderVineRobot(const Simulation& simulation, float scaleFactor)
-{
+inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
     const VineRobot& vine = simulation.vr;
     if (!simulation.vrActive || vine.points.empty()) {
         return;
     }
 
-    // Draw each vine point as a small green circle
-    glColor3f(0.0f, 0.8f, 0.0f); // Bright green
-    constexpr float pointRadius = 1.0f;  // radius in pixels
-    constexpr int   circleSegments = 12;
+    // Draw each vine point as a small green circle.
+    glColor3f(0.0f, 0.8f, 0.0f); // Bright green.
+    constexpr float pointRadius = 1.0f;  // radius in pixels.
+    constexpr int circleSegments = 12;
 
     for (size_t i = 0; i < vine.points.size(); ++i) {
         float px = vine.points[i].first * scaleFactor;
         float py = vine.points[i].second * scaleFactor;
-
         glBegin(GL_TRIANGLE_FAN);
-        // Center of the circle
         glVertex2f(px, py);
-        // Draw a fan of triangles to form a filled circle
         for (int j = 0; j <= circleSegments; ++j) {
             float angle = j * 2.0f * 3.14159265f / circleSegments;
             float cx = px + std::cos(angle) * pointRadius;
@@ -336,13 +332,12 @@ inline void renderVineRobot(const Simulation& simulation, float scaleFactor)
         glEnd();
     }
 
-    // Optionally draw the tip in a different color/radius
+    // Draw the tip with a darker green circle.
     auto tip = vine.points.back();
     float tipX = tip.first * scaleFactor;
     float tipY = tip.second * scaleFactor;
-    glColor3f(0.0f, 0.5f, 0.0f); // Darker green
+    glColor3f(0.0f, 0.5f, 0.0f); // Darker green.
     constexpr float tipRadius = 6.0f;
-
     glBegin(GL_TRIANGLE_FAN);
     glVertex2f(tipX, tipY);
     for (int i = 0; i <= circleSegments; ++i) {
@@ -352,6 +347,18 @@ inline void renderVineRobot(const Simulation& simulation, float scaleFactor)
         glVertex2f(cx, cy);
     }
     glEnd();
+
+    // Draw the global turn line if it has been set.
+    // We assume that if both endpoints are nonzero then the line should be drawn.
+    //if (!(g_turnLine.start.first == 0.0f && g_turnLine.start.second == 0.0f &&
+    //    g_turnLine.end.first == 0.0f && g_turnLine.end.second == 0.0f)) {
+    //    glColor3f(1.0f, 0.0f, 0.0f); // Red for the turn line.
+    //    glLineWidth(2.0f);
+    //    glBegin(GL_LINES);
+    //    glVertex2f(g_turnLine.start.first * scaleFactor, g_turnLine.start.second * scaleFactor);
+    //    glVertex2f(g_turnLine.end.first * scaleFactor, g_turnLine.end.second * scaleFactor);
+    //    glEnd();
+    //}
 }
 
 
