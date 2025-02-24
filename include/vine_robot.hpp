@@ -11,8 +11,8 @@
 // Constants.
 constexpr float PI = 3.14159265f;
 constexpr float TURN_INCREMENT = 5.0f * (PI / 180.0f);
-static constexpr float MIN_TURN_ANGLE = 10.0f * (PI / 180.0f); // 20°
-static constexpr float MAX_TURN_ANGLE = 20.0f * (PI / 180.0f); // 45°
+static constexpr float MIN_TURN_ANGLE = 1.0f * (PI / 180.0f); // 20°
+static constexpr float MAX_TURN_ANGLE = 10.0f * (PI / 180.0f); // 45°
 constexpr float COLLISION_REVERSE_DISTANCE = 1.5f;
 
 // Global variable for the turn line for plotting.
@@ -43,22 +43,20 @@ struct VineRobot {
     bool reversing;
     int reverseCount;
 
+    bool useDesiredHeading;
+    float desiredHeading;
+
     VineRobot(float startX, float startY, float initialAngleRad)
-        : theta(initialAngleRad)
-        , expansionRate(0.5f)
-        , turning(false)
-        , targetTurnAngle(0.0f)
-        , remainingTurnAngle(0.0f)
-        , turnStartHeading(0.0f)
-        , turnDirectionSign(+1.0f)
-        , tipSensorLastUpdate(0.0f)
-        , reverseDistanceRemaining(0.0f)
-        , reversing(false)
-        , reverseCount(0)
-        , rng(std::random_device{}())
+        : theta(initialAngleRad), expansionRate(0.5f),
+        turning(false), targetTurnAngle(0.0f), remainingTurnAngle(0.0f),
+        turnStartHeading(0.0f), turnDirectionSign(+1.0f),
+        tipSensorLastUpdate(0.0f), reverseDistanceRemaining(0.0f), reversing(false),
+        reverseCount(0), useDesiredHeading(false), desiredHeading(initialAngleRad),
+        rng(std::random_device{}())
     {
         points.push_back({ startX, startY });
     }
+
 
     std::pair<float, float> tip() const { return points.back(); }
 
@@ -133,13 +131,14 @@ struct VineRobot {
                 targetTurnAngle = dist(rng);
                 remainingTurnAngle = targetTurnAngle;
                 turnStartHeading = computeHeading();
-                float targetHeading = turnStartHeading + turnDirectionSign * targetTurnAngle;
-                float lineLength = 0.5f;
-                auto tipPos = tip();
-                g_turnLine.start = tipPos;
-                g_turnLine.end = { tipPos.first + lineLength * std::cos(targetHeading),
-                                   tipPos.second + lineLength * std::sin(targetHeading) };
-                // std::cout << "Starting turn: " << (turnDirectionSign > 0 ? "right" : "left") << ", target total angle = " << targetTurnAngle * 180.0f / PI << " deg." << std::endl;
+                // Set the desired new heading explicitly.
+                desiredHeading = turnStartHeading + turnDirectionSign * targetTurnAngle;
+                useDesiredHeading = true;
+                // (Also update global turn line for plotting, etc.)
+                std::cout << "Starting turn: " << (turnDirectionSign > 0 ? "right" : "left")
+                    << ", target total angle = " << targetTurnAngle * 180.0f / PI << " deg" 
+                    << ", desired heading = " << desiredHeading * 180.0f / PI << std::endl;
+
                 rebalancePoints(occupancy, cellSize, dt);
                 return;
             }
@@ -148,22 +147,27 @@ struct VineRobot {
         }
 
         // 2) Compute the base heading and adjust if turning.
-        float baseHeading = computeHeading();
-        float currentHeading = baseHeading;
-        if (turning) {
-            float delta = std::min(TURN_INCREMENT, remainingTurnAngle);
-            currentHeading = turnStartHeading + turnDirectionSign * ((targetTurnAngle - remainingTurnAngle) + delta);
-            remainingTurnAngle -= delta;
-            if (remainingTurnAngle <= 1e-6f) {
-                turning = false;
-            }
+        float candidateHeading;
+        if (useDesiredHeading) {
+            candidateHeading = desiredHeading;
+            useDesiredHeading = false; // Use it only for the next candidate point.
         }
-        // 3) Compute candidate point along the adjusted heading.
+        else if (turning) {
+            float delta = std::min(TURN_INCREMENT, remainingTurnAngle);
+            candidateHeading = turnStartHeading + turnDirectionSign * ((targetTurnAngle - remainingTurnAngle) + delta);
+            remainingTurnAngle -= delta;
+            if (remainingTurnAngle <= 1e-6f)
+                turning = false;
+        }
+        else {
+            candidateHeading = computeHeading();
+        }
+
         float stepSize = expansionRate * dt;
         auto lastTip = tip();
         std::pair<float, float> candidate{
-            lastTip.first + stepSize * std::cos(currentHeading),
-            lastTip.second + stepSize * std::sin(currentHeading)
+            lastTip.first + stepSize * std::cos(candidateHeading),
+            lastTip.second + stepSize * std::sin(candidateHeading)
         };
 
         // 4) Check for collision: candidate point OR any point on the vine.

@@ -317,7 +317,6 @@ inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
     glColor3f(0.0f, 0.8f, 0.0f); // Bright green.
     constexpr float pointRadius = 1.0f;  // radius in pixels.
     constexpr int circleSegments = 12;
-
     for (size_t i = 0; i < vine.points.size(); ++i) {
         float px = vine.points[i].first * scaleFactor;
         float py = vine.points[i].second * scaleFactor;
@@ -348,18 +347,66 @@ inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
     }
     glEnd();
 
-    // Draw the global turn line if it has been set.
-    // We assume that if both endpoints are nonzero then the line should be drawn.
-    //if (!(g_turnLine.start.first == 0.0f && g_turnLine.start.second == 0.0f &&
-    //    g_turnLine.end.first == 0.0f && g_turnLine.end.second == 0.0f)) {
-    //    glColor3f(1.0f, 0.0f, 0.0f); // Red for the turn line.
-    //    glLineWidth(2.0f);
-    //    glBegin(GL_LINES);
-    //    glVertex2f(g_turnLine.start.first * scaleFactor, g_turnLine.start.second * scaleFactor);
-    //    glVertex2f(g_turnLine.end.first * scaleFactor, g_turnLine.end.second * scaleFactor);
-    //    glEnd();
-    //}
+    // --- New: Draw an arrow from the first point to the second point.
+    if (vine.points.size() >= 2) {
+        // Get first and second points.
+        float p0x = vine.points[0].first * scaleFactor;
+        float p0y = vine.points[0].second * scaleFactor;
+        float p1x = vine.points[1].first * scaleFactor;
+        float p1y = vine.points[1].second * scaleFactor;
+
+        // Draw the arrow shaft.
+        glColor3f(0.0f, 0.0f, 1.0f); // Blue color for the arrow.
+        glLineWidth(2.0f);
+        glBegin(GL_LINES);
+        glVertex2f(p0x, p0y);
+        glVertex2f(p1x, p1y);
+        glEnd();
+
+        // Compute arrowhead parameters.
+        float dx = p1x - p0x;
+        float dy = p1y - p0y;
+        float len = std::sqrt(dx * dx + dy * dy);
+        if (len > 1e-6f) {
+            // Arrowhead length and angle.
+            float arrowLength = 10.0f; // in pixels
+            float arrowAngle = 30.0f * (3.14159265f / 180.0f); // 30 degrees in radians
+            // Unit direction.
+            float ux = dx / len;
+            float uy = dy / len;
+            // Rotate the unit vector by +arrowAngle and -arrowAngle.
+            float leftX = std::cos(arrowAngle) * ux - std::sin(arrowAngle) * uy;
+            float leftY = std::sin(arrowAngle) * ux + std::cos(arrowAngle) * uy;
+            float rightX = std::cos(-arrowAngle) * ux - std::sin(-arrowAngle) * uy;
+            float rightY = std::sin(-arrowAngle) * ux + std::cos(-arrowAngle) * uy;
+            // Arrowhead points: from p1 subtract the rotated vectors scaled to arrowLength.
+            float leftTipX = p1x - arrowLength * leftX;
+            float leftTipY = p1y - arrowLength * leftY;
+            float rightTipX = p1x - arrowLength * rightX;
+            float rightTipY = p1y - arrowLength * rightY;
+
+            // Draw filled triangle for arrowhead.
+            glColor3f(0.0f, 0.0f, 1.0f); // same blue.
+            glBegin(GL_TRIANGLES);
+            glVertex2f(p1x, p1y);
+            glVertex2f(leftTipX, leftTipY);
+            glVertex2f(rightTipX, rightTipY);
+            glEnd();
+        }
+    }
+
+    // Draw the global turn line if set.
+    if (!(g_turnLine.start.first == 0.0f && g_turnLine.start.second == 0.0f &&
+        g_turnLine.end.first == 0.0f && g_turnLine.end.second == 0.0f)) {
+        glColor3f(1.0f, 0.0f, 0.0f); // Red.
+        glLineWidth(2.0f);
+        glBegin(GL_LINES);
+        glVertex2f(g_turnLine.start.first * scaleFactor, g_turnLine.start.second * scaleFactor);
+        glVertex2f(g_turnLine.end.first * scaleFactor, g_turnLine.end.second * scaleFactor);
+        glEnd();
+    }
 }
+
 
 
 inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleFactor) {
