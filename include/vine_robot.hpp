@@ -8,198 +8,252 @@
 #include <iostream>
 #include <random>
 
-// Constants.
+// -----------------------------------------
+// Constants
+// -----------------------------------------
 constexpr float PI = 3.14159265f;
-constexpr float TURN_INCREMENT = 5.0f * (PI / 180.0f);
-static constexpr float MIN_TURN_ANGLE = 1.0f * (PI / 180.0f); // 20°
-static constexpr float MAX_TURN_ANGLE = 10.0f * (PI / 180.0f); // 45°
-constexpr float COLLISION_REVERSE_DISTANCE = 1.5f;
 
-// Global variable for the turn line for plotting.
-struct TurnLine {
-    std::pair<float, float> start;
-    std::pair<float, float> end;
-};
-inline TurnLine g_turnLine = { {0, 0}, {0, 0} };
+// For picking random turn angles
+static constexpr float MIN_TURN_ANGLE_DEG = 0.1f;
+static constexpr float MAX_TURN_ANGLE_DEG = 2.5f;
 
-struct VineRobot {
+// -----------------------------------------
+// VineRobot (single-segment continuum)
+// -----------------------------------------
+struct VineRobot
+{
+    // =============================
+    // 1) Basic fields
+    // =============================
+    // Base anchor
+    float baseX;
+    float baseY;
+    float baseTheta;
+
+    // Single-segment continuum params
+    float length;      // current extended length
+    float kappa;       // curvature
+
+    float expansionRate; // units per second
+
+    // We keep a discrete list of points for plotting & collision
     std::vector<std::pair<float, float>> points;
-    std::default_random_engine rng;
 
-    float theta;
-    float expansionRate;
+    // -----------------------------
+    // Reversal logic
+    bool reversing; // are we currently retracting frame-by-frame?
 
-    // Turning state.
-    bool turning;
-    float targetTurnAngle;      // Total turn (in radians) desired in this phase
-    float remainingTurnAngle;   // How much turn remains to be applied
-    float turnStartHeading;     // Base heading at turn start (from last two points)
-    float turnDirectionSign;    // +1 or -1; flipped on collision
-
+    // For sensor timing
     float tipSensorLastUpdate;
 
-    // Reversal state.
-    float reverseDistanceRemaining;
-    bool reversing;
-    int reverseCount;
+    // RNG
+    std::default_random_engine rng;
 
-    bool useDesiredHeading;
-    float desiredHeading;
-
+    // =============================
+    // 2) Constructor
+    // =============================
     VineRobot(float startX, float startY, float initialAngleRad)
-        : theta(initialAngleRad), expansionRate(0.05f),
-        turning(false), targetTurnAngle(0.0f), remainingTurnAngle(0.0f),
-        turnStartHeading(0.0f), turnDirectionSign(+1.0f),
-        tipSensorLastUpdate(0.0f), reverseDistanceRemaining(0.0f), reversing(false),
-        reverseCount(0), useDesiredHeading(false), desiredHeading(initialAngleRad),
+        : baseX(startX),
+        baseY(startY),
+        baseTheta(initialAngleRad),
+        length(0.0f),
+        kappa(0.0f),
+        expansionRate(0.05f),
+        reversing(false),
+        tipSensorLastUpdate(0.0f),
         rng(std::random_device{}())
     {
-        points.push_back({ startX, startY });
+        points.clear();
+        points.push_back({ baseX, baseY });
     }
 
+    // =============================
+    // 3) move()
+    // =============================
+    void move(const std::vector<std::vector<int>>& occupancy,
+        float cellSize, float dt)
+    {
+        if (!reversing) {
+            // -----------------------------
+            // (A) Expanding forward
+            // -----------------------------
+            float oldLength = length;
+            length += expansionRate * dt;
 
-    std::pair<float, float> tip() const { return points.back(); }
+            // Recompute the shape with the new length
+            recomputeArcPoints();
 
-    // Checks if a single point collides (using occupancy grid).
-    bool isColliding(const std::pair<float, float>& pt, const std::vector<std::vector<int>>& occupancy, float cellSize) {
-        int col = static_cast<int>(pt.first / cellSize);
-        int row = static_cast<int>(pt.second / cellSize);
-        if (row < 0 || row >= static_cast<int>(occupancy.size()) ||
-            col < 0 || col >= static_cast<int>(occupancy[0].size()))
-        {
-            return true; // Out of bounds => collision.
+            // Check collision
+            if (checkCollision(occupancy, cellSize)) {
+                // Revert to old length => so we are no longer in collision
+                length = oldLength;
+                recomputeArcPoints();
+
+                // Now begin reversing from here
+                reversing = true;
+                std::cout << "[DEBUG] Collision => start reversing from length="
+                    << length << "\n";
+            }
         }
-        return (occupancy[row][col] == 0); // 0 => wall => collision.
+        else {
+            // -----------------------------
+            // (B) Reversing
+            // -----------------------------
+            // Shrink a bit each frame
+            float oldLength = length;
+            length -= expansionRate * dt;
+            if (length < 0.0f) {
+                length = 0.0f;
+            }
+
+            recomputeArcPoints();
+
+            // If fully retracted => pick a new random angle, expand again
+            if (length <= 1e-6f) {
+                length = 0.0f;  // clamp
+                reversing = false;
+
+                // Pick a new random bend angle
+                std::uniform_real_distribution<float> angleDistDeg(-MAX_TURN_ANGLE_DEG, +MAX_TURN_ANGLE_DEG);
+                float angleDeg = angleDistDeg(rng);
+                float angleRad = angleDeg * (PI / 180.0f);
+
+                // pick left or right sign
+                float sign = (std::uniform_real_distribution<float>(0.0f, 1.0f)(rng) < 0.5f)
+                    ? -1.0f : +1.0f;
+
+                // Now we set kappa so that the total arc angle = angleRad,
+                // once the vine extends. But length=0 now, so we might do
+                // "if we want to set kappa right away, we can do some default length"
+                // or store "pendingAngleRad". 
+                // For simplicity, let's just set kappa=0, then update once we expand a bit.
+                // Or we can set a small “dummy” length check in each move step 
+                // if length>someThresh => kappa = angleRad/length. 
+                // 
+                // A simpler approach: set kappa right away if you prefer. 
+                // Then as soon as length grows, the shape takes that bend.
+                // 
+                // We'll do the 'pending angle' approach here:
+                pendingAngleRad = angleRad * sign;
+                kappa = 0.0f;  // temporarily 0
+
+                std::cout << "[DEBUG] Fully retracted => new random angle = "
+                    << (angleDeg * sign) << " deg => pendingAngleRad="
+                    << pendingAngleRad << "\n";
+            }
+            else {
+                // partial retraction not yet done
+            }
+        }
+
+        // After either expanding or reversing, we might apply the pending angle
+        // if we've grown enough that it makes sense.
+        applyPendingAngleIfNeeded();
     }
 
-    // NEW: Checks if any point in the vine is colliding.
-    bool checkVineCollision(const std::vector<std::vector<int>>& occupancy, float cellSize) {
-        for (const auto& pt : points) {
-            if (isColliding(pt, occupancy, cellSize))
+    // =============================
+    // 4) Recompute Arc Points
+    // =============================
+    void recomputeArcPoints(int numSamples = 20)
+    {
+        points.clear();
+        points.reserve(numSamples);
+
+        if (numSamples < 1) numSamples = 1;
+        float ds = (numSamples == 1 ? 0.0f : (length / (numSamples - 1)));
+
+        for (int i = 0; i < numSamples; i++) {
+            float s = ds * i;  // arc-length from base
+
+            float xLocal, yLocal;
+            if (std::fabs(kappa) < 1e-6f) {
+                // near-zero => straight
+                xLocal = s;
+                yLocal = 0.0f;
+            }
+            else {
+                xLocal = (1.0f / kappa) * (1.0f - std::cos(kappa * s));
+                yLocal = (1.0f / kappa) * std::sin(kappa * s);
+            }
+
+            // Rotate by baseTheta
+            float c = std::cos(baseTheta);
+            float d = std::sin(baseTheta);
+            float xWorld = baseX + (c * xLocal) - (d * yLocal);
+            float yWorld = baseY + (d * xLocal) + (c * yLocal);
+
+            points.push_back({ xWorld, yWorld });
+        }
+    }
+
+    // =============================
+    // 5) Collision
+    // =============================
+    bool checkCollision(const std::vector<std::vector<int>>& occupancy,
+        float cellSize) const
+    {
+        for (auto& p : points) {
+            if (isColliding(p, occupancy, cellSize)) {
                 return true;
+            }
         }
         return false;
     }
 
-    void reverseOnePoint(float dist) {
-        if (points.size() < 2) return; // No segment to remove.
-        auto& p2 = points.back();
+    bool isColliding(const std::pair<float, float>& pt,
+        const std::vector<std::vector<int>>& occupancy,
+        float cellSize) const
+    {
+        int col = static_cast<int>(pt.first / cellSize);
+        int row = static_cast<int>(pt.second / cellSize);
+
+        // Out of bounds => collision
+        if (row < 0 || row >= (int)occupancy.size() ||
+            col < 0 || col >= (int)occupancy[0].size())
+        {
+            return true;
+        }
+        // occupancy=0 => wall => collision
+        return (occupancy[row][col] == 0);
+    }
+
+    // =============================
+    // 6) Tip and Heading
+    // =============================
+    std::pair<float, float> tip() const
+    {
+        if (points.empty()) {
+            return { baseX, baseY };
+        }
+        return points.back();
+    }
+
+    float computeHeading() const
+    {
+        if (points.size() < 2) {
+            return baseTheta;
+        }
         auto& p1 = points[points.size() - 2];
+        auto& p2 = points.back();
         float dx = p2.first - p1.first;
         float dy = p2.second - p1.second;
-        float segLen = std::sqrt(dx * dx + dy * dy);
-        if (segLen <= dist) {
-            // Remove the entire last point.
-            points.pop_back();
-        }
-        else {
-            // Shorten the last segment by 'dist'.
-            float ratio = (segLen - dist) / segLen;
-            p2.first = p1.first + dx * ratio;
-            p2.second = p1.second + dy * ratio;
-        }
+        return std::atan2(dy, dx);
     }
 
-    float totalLength() const {
-        float sum = 0.0f;
-        for (size_t i = 1; i < points.size(); i++) {
-            float dx = points[i].first - points[i - 1].first;
-            float dy = points[i].second - points[i - 1].second;
-            sum += std::sqrt(dx * dx + dy * dy);
-        }
-        return sum;
-    }
-
-    // -----------------------------------------
-    // move() function.
-    // -----------------------------------------
-    void move(const std::vector<std::vector<int>>& occupancy, float cellSize, float dt) {
-        // 1) Handle reversing first.
-        if (reversing && reverseDistanceRemaining > 0.0f) {
-            float retractStep = expansionRate * dt;
-            if (retractStep > reverseDistanceRemaining) {
-                retractStep = reverseDistanceRemaining;
-            }
-            reverseOnePoint(retractStep);
-            reverseDistanceRemaining -= retractStep;
-            if (reverseDistanceRemaining <= 1e-6f) {
-                reversing = false;
-                reverseDistanceRemaining = 0.0f;
-                // Start a new turn.
-                turning = true;
-                std::uniform_real_distribution<float> dist(MIN_TURN_ANGLE, MAX_TURN_ANGLE);
-                targetTurnAngle = dist(rng);
-                remainingTurnAngle = targetTurnAngle;
-                turnStartHeading = computeHeading();
-                // Set the desired new heading explicitly.
-                desiredHeading = turnStartHeading + turnDirectionSign * targetTurnAngle;
-                useDesiredHeading = true;
-                // (Also update global turn line for plotting, etc.)
-                std::cout << "Starting turn: " << (turnDirectionSign > 0 ? "right" : "left")
-                    << ", target total angle = " << targetTurnAngle * 180.0f / PI << " deg" 
-                    << ", desired heading = " << desiredHeading * 180.0f / PI << std::endl;
-
-                rebalancePoints(occupancy, cellSize, dt);
-                return;
-            }
-            rebalancePoints(occupancy, cellSize, dt);
-            return;
-        }
-
-        // 2) Compute the base heading and adjust if turning.
-        float candidateHeading;
-        if (useDesiredHeading) {
-            candidateHeading = desiredHeading;
-            useDesiredHeading = false; // Use it only for the next candidate point.
-        }
-        else if (turning) {
-            float delta = std::min(TURN_INCREMENT, remainingTurnAngle);
-            candidateHeading = turnStartHeading + turnDirectionSign * ((targetTurnAngle - remainingTurnAngle) + delta);
-            remainingTurnAngle -= delta;
-            if (remainingTurnAngle <= 1e-6f)
-                turning = false;
-        }
-        else {
-            candidateHeading = computeHeading();
-        }
-
-        float stepSize = expansionRate * dt;
-        auto lastTip = tip();
-        std::pair<float, float> candidate{
-            lastTip.first + stepSize * std::cos(candidateHeading),
-            lastTip.second + stepSize * std::sin(candidateHeading)
-        };
-
-        // 4) Check for collision: candidate point OR any point on the vine.
-        if (isColliding(candidate, occupancy, cellSize) || checkVineCollision(occupancy, cellSize)) {
-            reverseCount++;
-            float desiredReverse = COLLISION_REVERSE_DISTANCE * reverseCount;
-            float currentLength = totalLength();
-            if (desiredReverse >= currentLength) {
-                desiredReverse = currentLength;
-                reverseCount = 0;
-            }
-            reversing = true;
-            reverseDistanceRemaining = desiredReverse;
-            // Flip turn direction upon collision.
-            turnDirectionSign *= -1.0f;
-            return;
-        }
-
-        // 5) No collision: add candidate point and gradually rebalance.
-        points.push_back(candidate);
-        rebalancePoints(occupancy, cellSize, dt);
-    }
-
-    // -----------------------------------------
-    // sensor_lidar function.
-    // -----------------------------------------
-    std::vector<float> sensor_lidar(const std::vector<std::vector<int>>& occupancy, float cellSize) {
+    // =============================
+    // 7) Sensors (Unchanged)
+    // =============================
+    std::vector<float> sensor_lidar(const std::vector<std::vector<int>>& occupancy,
+        float cellSize)
+    {
         const float max_range = 2.0f;
         float step = cellSize * 0.5f;
         std::vector<float> measurements(3, max_range);
         auto sensorPos = tip();
-        float angleOffsets[3] = { -15.0f * (PI / 180.0f), 0.0f, 15.0f * (PI / 180.0f) };
+
+        float angleOffsets[3] = { -15.0f * (PI / 180.0f),
+                                   0.0f,
+                                   15.0f * (PI / 180.0f) };
 
         float heading = computeHeading();
         for (int i = 0; i < 3; i++) {
@@ -208,11 +262,14 @@ struct VineRobot {
             while (distance < max_range) {
                 float rayX = sensorPos.first + distance * std::cos(sensorAngle);
                 float rayY = sensorPos.second + distance * std::sin(sensorAngle);
-                int col = static_cast<int>(rayX / cellSize);
-                int row = static_cast<int>(rayY / cellSize);
-                if (row < 0 || row >= static_cast<int>(occupancy.size()) ||
-                    col < 0 || col >= static_cast<int>(occupancy[0].size()))
+
+                int col = (int)(rayX / cellSize);
+                int row = (int)(rayY / cellSize);
+
+                if (row < 0 || row >= (int)occupancy.size() ||
+                    col < 0 || col >= (int)occupancy[0].size())
                 {
+                    // out of bounds => stop
                     break;
                 }
                 if (occupancy[row][col] == 0) {
@@ -228,165 +285,96 @@ struct VineRobot {
         return measurements;
     }
 
-    // -----------------------------------------
-    // measure function.
-    // -----------------------------------------
     void measure(const std::vector<std::vector<int>>& trueOccupancy,
         std::vector<std::vector<int>>& unknownOccupancy,
         std::vector<std::vector<int>>& foundBy,
-        const std::vector<std::vector<float>>& trueHeat,
-        std::vector<std::vector<float>>& knownHeat,
+        const std::vector<std::vector<float>>& /*trueHeat*/,
+        std::vector<std::vector<float>>& /*knownHeat*/,
         float cellSize, float currentTime)
     {
         const float defaultUpdateInterval = 0.1f;
-        if (currentTime - tipSensorLastUpdate < defaultUpdateInterval)
+        if (currentTime - tipSensorLastUpdate < defaultUpdateInterval) {
             return;
+        }
 
         std::vector<float> measurements = sensor_lidar(trueOccupancy, cellSize);
-        if (measurements.empty())
-            return;
+        if (measurements.empty()) return;
 
         auto sensorPos = tip();
-        const float maxRange = 2.0f;
-        float angleOffsets[3] = { -15.0f * (PI / 180.0f), 0.0f, 15.0f * (PI / 180.0f) };
+        float angleOffsets[3] = { -15.0f * (PI / 180.0f),
+                                   0.0f,
+                                   15.0f * (PI / 180.0f) };
 
         float heading = computeHeading();
         for (int i = 0; i < 3; i++) {
             float sensorAngle = heading + angleOffsets[i];
             float distance = measurements[i];
-            int stepsCount = static_cast<int>(distance / cellSize);
+            int stepsCount = (int)(distance / cellSize);
+
+            // Mark free cells along the ray
             for (int j = 0; j < stepsCount; j++) {
                 float rayX = sensorPos.first + (j * cellSize) * std::cos(sensorAngle);
                 float rayY = sensorPos.second + (j * cellSize) * std::sin(sensorAngle);
-                int col = static_cast<int>(rayX / cellSize);
-                int row = static_cast<int>(rayY / cellSize);
-                if (row >= 0 && row < static_cast<int>(unknownOccupancy.size()) &&
-                    col >= 0 && col < static_cast<int>(unknownOccupancy[0].size()))
+                int col = (int)(rayX / cellSize);
+                int row = (int)(rayY / cellSize);
+
+                if (row >= 0 && row < (int)unknownOccupancy.size() &&
+                    col >= 0 && col < (int)unknownOccupancy[0].size())
                 {
                     if (unknownOccupancy[row][col] == -1) {
                         unknownOccupancy[row][col] = 1; // ground
-                        foundBy[row][col] = -2;         // discovered by vine robot
+                        foundBy[row][col] = -2;         // discovered by vine
                     }
                 }
             }
+
+            // Mark wall if within maxRange
+            const float maxRange = 2.0f;
             if (distance < maxRange) {
                 float sensorX = sensorPos.first + distance * std::cos(sensorAngle);
                 float sensorY = sensorPos.second + distance * std::sin(sensorAngle);
-                int col = static_cast<int>(sensorX / cellSize);
-                int row = static_cast<int>(sensorY / cellSize);
-                if (row >= 0 && row < static_cast<int>(unknownOccupancy.size()) &&
-                    col >= 0 && col < static_cast<int>(unknownOccupancy[0].size()))
+                int col = (int)(sensorX / cellSize);
+                int row = (int)(sensorY / cellSize);
+
+                if (row >= 0 && row < (int)unknownOccupancy.size() &&
+                    col >= 0 && col < (int)unknownOccupancy[0].size())
                 {
                     if (unknownOccupancy[row][col] == -1) {
                         unknownOccupancy[row][col] = 0; // wall
-                        foundBy[row][col] = -2;         // discovered by vine robot
+                        foundBy[row][col] = -2;         // discovered by vine
                     }
                 }
             }
         }
+
         tipSensorLastUpdate = currentTime;
     }
 
 private:
-    // -----------------------------------------
-    // computeHeading(): returns heading based on last two points.
-    // -----------------------------------------
-    float computeHeading() const {
-        if (points.size() < 2)
-            return theta;
-        auto& p1 = points[points.size() - 2];
-        auto& p2 = points.back();
-        float dx = p2.first - p1.first;
-        float dy = p2.second - p1.second;
-        return std::atan2(dy, dx);
-    }
+    // --------------------------------
+    // For storing a pending angle that
+    // we set after we expand a bit
+    // --------------------------------
+    float pendingAngleRad = 0.0f;
 
-public:
-
-public:
-    // -----------------------------------------
-    // rebalancePoints(): Adjust interior points gradually.
-    // Uses signed lateral offsets so left/right turns are preserved.
-    // dt is used to limit how far points are moved in one call.
-    // -----------------------------------------
-    // Updated rebalancePoints(): use p₀ = points[0] and pₙ = points.back() as endpoints,
-// and choose the circle so that p₁ is as close as possible to lying on it.
-    void rebalancePoints(const std::vector<std::vector<int>>& occupancy, float cellSize, float dt) {
-        if (points.size() < 3)
-            return;
-
-        // Use p₀ (first point) and pₙ (last point) to define the chord.
-        const auto& p0 = points[0];
-        const auto& pN = points.back();
-        float dx = pN.first - p0.first;
-        float dy = pN.second - p0.second;
-        float L = std::sqrt(dx * dx + dy * dy);
-        if (L < 1e-6f)
-            return; // Chord too short.
-
-        // Midpoint and unit vector along the chord.
-        std::pair<float, float> M = { (p0.first + pN.first) / 2.0f, (p0.second + pN.second) / 2.0f };
-        std::pair<float, float> u = { dx / L, dy / L };
-
-        // Perpendicular unit vector (pointing to the right).
-        std::pair<float, float> n = { -u.second, u.first };
-
-        // Use the second point (p₁) to choose the circle from the family of circles through p₀ and pₙ.
-        // Let A = p₁ - M.
-        const auto& p1 = points[1];
-        float Ax = p1.first - M.first;
-        float Ay = p1.second - M.second;
-        float A_norm_sq = Ax * Ax + Ay * Ay;
-        float halfL_sq = (L / 2.0f) * (L / 2.0f);
-        // p₁ lies exactly on the circle if: |A - t·n| = sqrt(halfL_sq + t²) (which is R)
-        // Solving for t yields: t = (|A|² - (L/2)²) / (2*(A·n)).
-        float dotAn = Ax * n.first + Ay * n.second;
-        float t = 0.0f;
-        if (std::fabs(dotAn) > 1e-6f)
-            t = (A_norm_sq - halfL_sq) / (2.0f * dotAn);
-        else
-            t = 0.0f; // If p₁ is nearly on the perpendicular bisector, choose center = M.
-
-        // Circle center and radius.
-        std::pair<float, float> C = { M.first + t * n.first, M.second + t * n.second };
-        float R = std::sqrt(halfL_sq + t * t);
-
-        // Compute angles from center to endpoints.
-        float angle0 = std::atan2(p0.second - C.second, p0.first - C.first);
-        float angleN = std::atan2(pN.second - C.second, pN.first - C.first);
-        // Compute the smallest angular difference in [-PI, PI].
-        float dAngle = angleN - angle0;
-        while (dAngle > PI) dAngle -= 2.0f * PI;
-        while (dAngle < -PI) dAngle += 2.0f * PI;
-
-        // Compute target positions along the arc.
-        // p₀ and pₙ are fixed; interior points (indices 1 .. n–1) will be moved gradually.
-        std::vector<std::pair<float, float>> targetPoints(points.size());
-        targetPoints[0] = p0;
-        targetPoints[points.size() - 1] = pN;
-        for (size_t i = 1; i < points.size() - 1; i++) {
-            float fraction = static_cast<float>(i) / (points.size() - 1);
-            float targetAngle = angle0 + fraction * dAngle;
-            targetPoints[i] = { C.first + R * std::cos(targetAngle),
-                                C.second + R * std::sin(targetAngle) };
-        }
-
-        // Gradually move each interior point toward its target.
-        float allowedStep = expansionRate * dt;
-        for (size_t i = 1; i < points.size() - 1; i++) {
-            float diffX = targetPoints[i].first - points[i].first;
-            float diffY = targetPoints[i].second - points[i].second;
-            float dist = std::sqrt(diffX * diffX + diffY * diffY);
-            if (dist <= allowedStep || dist < 1e-6f)
-                points[i] = targetPoints[i];
-            else {
-                float ratio = allowedStep / dist;
-                points[i].first += diffX * ratio;
-                points[i].second += diffY * ratio;
+    /**
+     * @brief applyPendingAngleIfNeeded()
+     *  If we retracted to length=0, we picked a new angle in pendingAngleRad.
+     *  We won't actually set kappa = (pendingAngleRad / length) until length
+     *  is at least some small threshold (so we don't divide by zero).
+     */
+    void applyPendingAngleIfNeeded()
+    {
+        if (std::fabs(pendingAngleRad) > 1e-6f) {
+            // Once length is above a small threshold, set kappa
+            float minLen = 0.1f; // or whatever small threshold you like
+            if (length >= minLen) {
+                kappa = pendingAngleRad / length;
+                pendingAngleRad = 0.0f;
+                std::cout << "[DEBUG] applyPendingAngle => kappa=" << kappa << "\n";
             }
         }
     }
-
 };
 
-#endif
+#endif // VINE_ROBOT_HPP

@@ -41,7 +41,7 @@ def compute_statistics(groups):
     return xs, means, stds
 
 def main():
-    filename = "multiple_test_1.json"
+    filename = "merged_res_1.json"
     data = load_data(filename)
     results = data.get("results", [])
     

@@ -270,6 +270,332 @@ float chooseTheta(float x, float y, float totalSize, std::mt19937& gen) {
 
 
 int main() {
+    const int n_simulations = 1;
+    const float totalSize = 20.0f;
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<float> posDist(0.0f, 20.0f);
+    // We won't use a simple angleDist anymore for theta;
+    // instead we'll use chooseTheta() based on candidate position.
+    std::bernoulli_distribution coin(0.5);
+
+
+    for (int simIndex = 0; simIndex < n_simulations; simIndex++) {
+        // Initialize GLFW
+        glfwSetErrorCallback(glfw_error_callback);
+        if (!glfwInit()) {
+            std::cerr << "Failed to initialize GLFW\n";
+            return -1;
+        }
+
+        // Create an OpenGL 1.0 window
+        GLFWwindow* window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "OpenGL 1.0 + ImGui", nullptr, nullptr);
+        if (!window) {
+            std::cerr << "Failed to create GLFW window\n";
+            glfwTerminate();
+            return -1;
+        }
+        glfwMakeContextCurrent(window);
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+        ImGui::StyleColorsDark();
+        ImGui_ImplGlfw_InitForOpenGL(window, true);
+        ImGui_ImplOpenGL2_Init();
+        glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+
+        SimConsts simConsts;
+        simConsts.cellSize = 0.05f;
+        simConsts.totalSize = 20.0f;
+        simConsts.nRobots = 10;
+        simConsts.muHoleSize = 0.5f;
+        simConsts.sigmaHoleSize = 0.2f;
+        simConsts.nHoles = 8;
+        simConsts.nPeople = 4;
+        simConsts.maxTime = 30 * 60.0f;
+        simConsts.dt = 0.1f;
+        simConsts.rrTime = 60.0f;
+
+        // Create a temporary occupancy grid for candidate testing.
+        int rows = simConsts.getGridRows();
+        int cols = simConsts.getGridCols();
+        std::vector<std::vector<int>> tempOcc(rows, std::vector<int>(cols, -1));
+        generateOfficeMap(tempOcc, simConsts.cellSize, 0.15f, 0.9f);
+        std::vector<Hole> holes = generateHolesList_custom1();
+        updateOccupancyWithHoles(tempOcc, holes, simConsts.cellSize);
+
+        // Select valid start positions.
+        float valid_vr_x, valid_vr_y, valid_rr_x, valid_rr_y;
+        do {
+            valid_vr_x = posDist(gen);
+            valid_vr_y = posDist(gen);
+        } while (!isCandidateValid(valid_vr_x, valid_vr_y, tempOcc, simConsts.cellSize, 20.0f));
+        do {
+            valid_rr_x = posDist(gen);
+            valid_rr_y = posDist(gen);
+        } while (!isCandidateValid(valid_rr_x, valid_rr_y, tempOcc, simConsts.cellSize, 20.0f));
+
+        // Choose heading angles based on position.
+        float vr_angle = chooseTheta(valid_vr_x, valid_vr_y, 20.0f, gen);
+        float rr_angle = chooseTheta(valid_rr_x, valid_rr_y, 20.0f, gen);
+
+        // Assign positions and angles.
+        simConsts.vrX = valid_vr_x;
+        simConsts.vrY = valid_vr_y;
+        simConsts.rrX = valid_rr_x;
+        simConsts.rrY = valid_rr_y;
+        simConsts.vrAngle = vr_angle;
+        simConsts.rrAngle = rr_angle;
+
+        // Create the Simulation instance.
+        Simulation simulation(simConsts);
+
+        // Initialize robots using public initialization functions.
+        simulation.initializeRescueRobots(valid_rr_x, valid_rr_y, rr_angle);
+        simulation.vrActive = true;
+        simulation.initializeVineRobot(valid_vr_x, valid_vr_y, vr_angle);
+        /*if (coin(gen)) {
+            simulation.vrActive = true;
+            simulation.initializeVineRobot(valid_vr_x, valid_vr_y, vr_angle);
+        }
+        else {
+            simulation.vrActive = false;
+        }*/
+        simulation.rrActive = true;
+
+
+        // --------------- Run Simulation & Plot--------------------
+
+        // Compute the scale factor so that the 4 grids fits the window.
+        float viewWidth = WINDOW_WIDTH / 3.0f;
+        float renderScaleFactor = (float)colWidth / simulation.consts.totalSize;
+        //float renderScaleFactor = float(WINDOW_WIDTH) / (total_size);
+
+        std::mutex simMutex;
+        std::atomic<bool> running(true);
+        bool simulationEnded = false;
+
+        std::thread simThread([&simulation, &simMutex, &running, &simulationEnded]() {
+            DWORD_PTR simAffinityMask = 0x4; // CPU 1 (assuming 0-indexed cores)
+            HANDLE hSimThread = GetCurrentThread(); // Get current thread handle
+
+            DWORD_PTR previousMask = SetThreadAffinityMask(hSimThread, simAffinityMask);
+            if (previousMask == 0) {
+                std::cerr << "Failed to set affinity for simulation thread." << std::endl;
+            }
+            else {
+                std::cout << "Simulation thread affinity set successfully." << std::endl;
+            }
+
+            auto lastRenderTime = std::chrono::steady_clock::now();
+            bool done = false;
+            while (running.load() && !done) {
+                {
+                    std::lock_guard<std::mutex> lock(simMutex);
+                    done = simulation.update();
+                }
+                if (done) simulationEnded = true;
+                auto now = std::chrono::steady_clock::now();
+                auto renderElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastRenderTime);
+
+                if (renderElapsed > std::chrono::milliseconds(50)) {
+                    //std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    //std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    std::this_thread::sleep_for(std::chrono::nanoseconds(500));
+                    lastRenderTime = std::chrono::steady_clock::now();
+                }
+                //std::this_thread::sleep_for(std::chrono::nanoseconds(10));
+            }
+            running.store(false);
+            });
+
+
+        // Main rendering loop.
+        while (!glfwWindowShouldClose(window)) {
+            glfwPollEvents();
+            glClear(GL_COLOR_BUFFER_BIT);
+
+            // Render viewports
+            {
+                std::lock_guard<std::mutex> lock(simMutex);
+
+
+                // Left Top: True occupancy grid with robots.
+                glViewport(0, rowHeight, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderGrid(simulation, renderScaleFactor);
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+
+                // Left Bottom: True heat map.
+                glViewport(0, 0, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderHeatMap(simulation, renderScaleFactor);
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+
+
+                // Right Top: Discovered occupancy grid with robots (lidar view).
+                glViewport(colWidth, rowHeight, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderMeasurementGrid(simulation, renderScaleFactor);
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+
+                // Right Bottom: Discovered heat map from the robots' heat sensor.
+                glViewport(colWidth, 0, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderDiscoveredHeatMap(simulation, renderScaleFactor);
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+
+                //heat map
+                glViewport(2 * colWidth, 0, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderInterpolatedHeatMap(simulation, renderScaleFactor); // New function (see below)
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+
+                //Incline map
+                glViewport(2 * colWidth, rowHeight, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                renderGradientMap(simulation, renderScaleFactor);
+                //renderHeightMap(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+            }
+
+            ImGui_ImplOpenGL2_NewFrame();
+            ImGui_ImplGlfw_NewFrame();
+            ImGui::NewFrame();
+            ImGui::Render();
+            glfwSwapBuffers(window);
+            if (simulationEnded) {
+                std::cout << "Closing Simulation" << std::endl;
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
+        }
+
+
+        // Signal the simulation thread to stop (if not already done) and join it.
+        running.store(false);
+        simThread.join();
+
+        ImGui_ImplOpenGL2_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+        glfwDestroyWindow(window);
+
+
+
+        // --------------- Output Results -----------------------------
+
+        int totalCells = simulation.grid.foundBy.size() * simulation.grid.foundBy[0].size();
+        int coveredCells = 0;
+
+        for (auto& robot : simulation.rr) {
+            if (!robot.spawned) {
+                std::cout << "Robot " << robot.id << ": Not spawned" << std::endl;
+            }
+            else {
+                // Compute runtime from the actual drop moment.
+                float runtime = robot.dead ? (robot.timeDeath - robot.spawnTime)
+                    : (simulation.t - robot.spawnTime);
+
+                int discoveredCount = 0;
+                for (const auto& row : simulation.grid.foundBy) {
+                    for (int cell : row) {
+                        if (cell == robot.id) discoveredCount++;
+                    }
+                }
+                coveredCells += discoveredCount;
+                float percentExplored = (static_cast<float>(discoveredCount) / totalCells) * 100.0f;
+
+                std::cout << "Robot " << robot.id << ": Run time = " << runtime << " sec, "
+                    << (robot.dead ? "Fell " : "Alive")
+                    << ", % area exp = " << percentExplored << "%" << std::endl;
+            }
+        }
+
+
+        int vineCount = 0;
+        for (const auto& row : simulation.grid.foundBy) {
+            for (int cell : row) {
+                if (cell == -2)
+                    vineCount++;
+            }
+        }
+        float vinePercent = (static_cast<float>(vineCount) / totalCells) * 100.0f;
+        std::cout << "Vine Robot discovered " << vinePercent << "% of the area." << std::endl;
+
+
+        float totalCoveragePercent = (static_cast<float>(coveredCells) / totalCells) * 100.0f;
+        std::cout << "Total area coverage by rescue robots: " << totalCoveragePercent << "%" << std::endl;
+
+        saveSimulationResults(simulation, "merged_res_1.json");
+    }
+    std::system("python ../scripts/plot_results.py");
+    return 0;
+}
+
+
+int main_0() {
     // Initialize GLFW
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit()) {
@@ -295,33 +621,7 @@ int main() {
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
 
 
-    /*SimConsts simConsts;
-    simConsts.cellSize = 0.05f;
-    simConsts.totalSize = 20.0f;
-    simConsts.nRobots = 10;
-    simConsts.muHoleSize = 0.5f;
-    simConsts.sigmaHoleSize = 0.2f;
-    simConsts.nHoles = 8;
-    simConsts.nPeople = 4;
-    simConsts.maxTime = 30 * 60.0f;
-    simConsts.dt = 0.1f;
-    simConsts.vrX = 18.2f;
-    simConsts.vrY = 18.2f;
-    simConsts.vrAngle = 0.4 * PI + PI;
-    simConsts.rrX = 1.5f;
-    simConsts.rrY = 1.5f;
-    simConsts.rrAngle = 0;
-    simConsts.rrTime = 60.0f;
-    Simulation simulation(simConsts);*/
-
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> posDist(0.0f, 20.0f);
-    // We won't use a simple angleDist anymore for theta;
-    // instead we'll use chooseTheta() based on candidate position.
-    std::bernoulli_distribution coin(0.5);
-
+    // --------------- Create Simulation consts --------------------
     SimConsts simConsts;
     simConsts.cellSize = 0.05f;
     simConsts.totalSize = 20.0f;
@@ -330,56 +630,20 @@ int main() {
     simConsts.sigmaHoleSize = 0.2f;
     simConsts.nHoles = 8;
     simConsts.nPeople = 4;
-    simConsts.maxTime = 30 * 60.0f;
+    simConsts.maxTime = 60 * 60.0f;
     simConsts.dt = 0.1f;
-    simConsts.rrTime = 60.0f;
 
-    // Create a temporary occupancy grid for candidate testing.
-    int rows = simConsts.getGridRows();
-    int cols = simConsts.getGridCols();
-    std::vector<std::vector<int>> tempOcc(rows, std::vector<int>(cols, -1));
-    generateOfficeMap(tempOcc, simConsts.cellSize, 0.15f, 0.9f);
-    std::vector<Hole> holes = generateHolesList_custom1();
-    updateOccupancyWithHoles(tempOcc, holes, simConsts.cellSize);
-
-    // Select valid start positions.
-    float valid_vr_x, valid_vr_y, valid_rr_x, valid_rr_y;
-    do {
-        valid_vr_x = posDist(gen);
-        valid_vr_y = posDist(gen);
-    } while (!isCandidateValid(valid_vr_x, valid_vr_y, tempOcc, simConsts.cellSize, 20.0f));
-    do {
-        valid_rr_x = posDist(gen);
-        valid_rr_y = posDist(gen);
-    } while (!isCandidateValid(valid_rr_x, valid_rr_y, tempOcc, simConsts.cellSize, 20.0f));
-
-    // Choose heading angles based on position.
-    float vr_angle = chooseTheta(valid_vr_x, valid_vr_y, 20.0f, gen);
-    float rr_angle = chooseTheta(valid_rr_x, valid_rr_y, 20.0f, gen);
-
-    // Assign positions and angles.
-    simConsts.vrX = valid_vr_x;
-    simConsts.vrY = valid_vr_y;
-    simConsts.rrX = valid_rr_x;
-    simConsts.rrY = valid_rr_y;
-    simConsts.vrAngle = vr_angle;
-    simConsts.rrAngle = rr_angle;
-
-    // Create the Simulation instance.
+    // --------------- Create Simulation instance --------------------
     Simulation simulation(simConsts);
 
-    // Initialize robots using public initialization functions.
-    simulation.initializeRescueRobots(valid_rr_x, valid_rr_y, rr_angle);
-    if (coin(gen)) {
-        simulation.vrActive = true;
-        simulation.initializeVineRobot(valid_vr_x, valid_vr_y, vr_angle);
-    }
-    else {
-        simulation.vrActive = false;
-    }
-    simulation.rrActive = true;
+    simulation.vrActive = true;
+    simulation.rrActive = false;
 
+    //simulation.initializeRescueRobots(1.0f, 1.0f, 0.0f);
+    simulation.initializeVineRobot(1.0f, 1.0f, 0.0f);
     
+
+
     // --------------- Run Simulation & Plot--------------------
 
     // Compute the scale factor so that the 4 grids fits the window.
@@ -416,7 +680,7 @@ int main() {
 
             if (renderElapsed > std::chrono::milliseconds(50)) {
                 //std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                //std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 //std::this_thread::sleep_for(std::chrono::nanoseconds(500));
                 lastRenderTime = std::chrono::steady_clock::now();
             }
@@ -435,7 +699,7 @@ int main() {
         {
             std::lock_guard<std::mutex> lock(simMutex);
 
-            
+
             // Left Top: True occupancy grid with robots.
             glViewport(0, rowHeight, colWidth, rowHeight);
             glMatrixMode(GL_PROJECTION);
@@ -529,7 +793,6 @@ int main() {
             renderRobots(simulation, renderScaleFactor);
             renderVineRobot(simulation, renderScaleFactor);
             renderGradientMap(simulation, renderScaleFactor);
-            //renderHeightMap(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
@@ -564,29 +827,21 @@ int main() {
     int coveredCells = 0;
 
     for (auto& robot : simulation.rr) {
-        if (!robot.spawned) {
-            std::cout << "Robot " << robot.id << ": Not spawned" << std::endl;
-        }
-        else {
-            // Compute runtime from the actual drop moment.
-            float runtime = robot.dead ? (robot.timeDeath - robot.spawnTime)
-                : (simulation.t - robot.spawnTime);
 
-            int discoveredCount = 0;
-            for (const auto& row : simulation.grid.foundBy) {
-                for (int cell : row) {
-                    if (cell == robot.id) discoveredCount++;
-                }
+        // Determine run time: if the robot died, use its time_drop; otherwise, the current simulation time.
+        float runtime = robot.dead ? (robot.timeDeath - robot.spawnTime) : (simulation.t - robot.spawnTime);
+
+        int discoveredCount = 0;
+        for (const auto& row : simulation.grid.foundBy) {
+            for (int cell : row) {
+                if (cell == robot.id) discoveredCount++;
             }
-            coveredCells += discoveredCount;
-            float percentExplored = (static_cast<float>(discoveredCount) / totalCells) * 100.0f;
-
-            std::cout << "Robot " << robot.id << ": Run time = " << runtime << " sec, "
-                << (robot.dead ? "Fell " : "Alive")
-                << ", % area exp = " << percentExplored << "%" << std::endl;
         }
-    }
+        coveredCells += discoveredCount;
+        float percentExplored = (static_cast<float>(discoveredCount) / totalCells) * 100.0f;
 
+        std::cout << "Robot " << robot.id << ": Run time = " << runtime << " sec, " << (robot.dead ? "Fell " : "Alive") << ", % area exp = " << percentExplored << "%" << std::endl;
+    }
 
     int vineCount = 0;
     for (const auto& row : simulation.grid.foundBy) {
@@ -601,10 +856,6 @@ int main() {
 
     float totalCoveragePercent = (static_cast<float>(coveredCells) / totalCells) * 100.0f;
     std::cout << "Total area coverage by rescue robots: " << totalCoveragePercent << "%" << std::endl;
-
-    //saveSimulationResults(simulation, "test_results.json");
-
-    //std::system("python ../scripts/plot_results.py");
 
 
     // ----- Create a new ImGui context for the final window -----
@@ -720,29 +971,10 @@ int main() {
         glLoadIdentity();
         renderRobots(simulation, renderScaleFactor);
         renderVineRobot(simulation, renderScaleFactor);
-        //renderGradientMap(simulation, renderScaleFactor);
-        renderHeightMap(simulation, renderScaleFactor);
+        renderGradientMap(simulation, renderScaleFactor);
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();
-
-        // Optionally, use ImGui to display sensor data or additional info.
-        //ImGui_ImplOpenGL2_NewFrame();
-        //ImGui_ImplGlfw_NewFrame();
-        //ImGui::NewFrame();
-
-        //ImGui::Begin("Final Sensor Data");
-        //for (const auto& robot : simulation.rr) {
-        //    ImGui::Text("Robot %d:", robot.id);
-        //    for (size_t i = 0; i < robot.sensors.size(); ++i) {
-        //        ImGui::Text("Sensor %zu: %f", i, robot.sensors[i]);
-        //        ImGui::SameLine();
-        //    }
-        //    ImGui::Separator();
-        //}
-
-        //ImGui::End();
-        //ImGui::Render();
 
         glfwSwapBuffers(finalWindow);
     }
