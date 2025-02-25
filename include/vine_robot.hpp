@@ -47,7 +47,7 @@ struct VineRobot {
     float desiredHeading;
 
     VineRobot(float startX, float startY, float initialAngleRad)
-        : theta(initialAngleRad), expansionRate(0.5f),
+        : theta(initialAngleRad), expansionRate(0.05f),
         turning(false), targetTurnAngle(0.0f), remainingTurnAngle(0.0f),
         turnStartHeading(0.0f), turnDirectionSign(+1.0f),
         tipSensorLastUpdate(0.0f), reverseDistanceRemaining(0.0f), reversing(false),

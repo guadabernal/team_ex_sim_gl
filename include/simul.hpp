@@ -240,7 +240,7 @@ public:
     SimConsts consts;
     Grid known_grid;
     Grid grid;
-    
+
     std::vector<RescueRobot> rr;
     VineRobot vr;
 
@@ -254,6 +254,7 @@ public:
     int nextRrSpawnIndex;
     int updateCounter = 0;
 
+    // Constructor initializes grids, maps, holes, etc.
     Simulation(const SimConsts& s)
         : known_grid(s.getGridRows(), s.getGridCols(), s.cellSize)
         , grid(s.getGridRows(), s.getGridRows(), s.cellSize)
@@ -261,34 +262,37 @@ public:
         , rrActive(false)
         , vrActive(false)
         , nextRrSpawnIndex(0)
-        , vr(s.vrX, s.vrY, s.vrAngle) //, vr(18.0f, 18.0f, 3 * 0.5 * PI)
+        , vr(s.vrX, s.vrY, s.vrAngle)
     {
-
+        // Initialize heat map, generate occupancy map, holes, etc.
         initializeHeatMap(10.0f, 20.0f);
-        // generate map
         generateOfficeMap(known_grid.occupancy, consts.cellSize, 0.15f, 0.9f);
-
-        // generate holes
-        //holes = generateHolesList(s.getGridRows(), s.getGridCols(), s.cellSize, s.muHoleSize, s.sigmaHoleSize, s.nHoles);
         holes = generateHolesList_custom1();
-        updateOccupancyWithHoles(known_grid.occupancy, holes, s.cellSize);
-
-        // generate inclination maps
+        updateOccupancyWithHoles(known_grid.occupancy, holes, consts.cellSize);
         HeightMapGenerator::generateHeightMap(known_grid.height, known_grid.gradX, known_grid.gradY, consts.cellSize, holes);
 
-        // populate robots
-        rr.clear();
-        for (int i = 0; i < 15; i++) {
-            RescueRobot robot(s.rrX, s.rrY, s.rrAngle, s.rrTime * i, consts.cellSize, true, true);
-            rr.push_back(robot);
-        }
-        nextRrSpawnIndex = 0;
-        // populate people
+        // Populate people positions.
         personPositions.push_back({ 1.5f, 1.5f });
         personPositions.push_back({ 7.0f, 5.8f });
         personPositions.push_back({ 19.0f, 6.5f });
         personPositions.push_back({ 12.0f, 15.3f });
+    }
 
+    void initializeRescueRobots(float startX, float startY, float startTheta) {
+        rr.clear();
+        // For example, we create 15 rescue robots with a spawn time offset.
+        for (int i = 0; i < 15; i++) {
+            // Use the provided start condition for each robot.
+            RescueRobot robot(startX, startY, startTheta, consts.rrTime * i, consts.cellSize, true, true);
+            rr.push_back(robot);
+        }
+        nextRrSpawnIndex = 0;
+    }
+
+    // Optionally, you can also add an initializer for the vine robot.
+    void initializeVineRobot(float startX, float startY, float startTheta) {
+        // Reinitialize the vine robot with new parameters.
+        vr = VineRobot(startX, startY, startTheta);
     }
 
     bool update() {
