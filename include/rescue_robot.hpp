@@ -193,8 +193,6 @@ struct RescueRobot {
         return heightMap[row][col];
     }
 
-    // Modified move function for RescueRobot that now also accounts for terrain height.
-    // (Assumes an extra parameter 'trueHeight' is passed in, representing the true height grid.)
     void move(float dt,
         const std::vector<std::vector<int>>& occupancy,
         const std::vector<RescueRobot>& robots,
@@ -203,7 +201,7 @@ struct RescueRobot {
         std::vector<std::vector<int>>& foundBy,
         const std::vector<std::vector<float>>& trueHeat,
         std::vector<std::vector<float>>& knownHeat,
-        const std::vector<std::vector<float>>& trueHeight,  // NEW: height grid (meters)
+        const std::vector<std::vector<float>>& trueHeight,  // height grid (meters)
         float currentTime)
     {
         // Do not update if not yet spawned or already dead.
@@ -212,7 +210,7 @@ struct RescueRobot {
 
         float prevX = x, prevY = y;
 
-        // Update heading.
+        // Introduce a small random heading perturbation.
         if (rotating) {
             const float ROTATE_DELTA = 0.1f;
             theta += ROTATE_DELTA;
@@ -223,45 +221,61 @@ struct RescueRobot {
             theta += angleDist(rng);
         }
 
-        // Compute candidate new position.
+        // Compute candidate new position at full speed.
         float candidateX = x + v * std::cos(theta) * dt;
         float candidateY = y + v * std::sin(theta) * dt;
 
-        // --- New: Check the height difference ---
-        // Get the current and candidate heights.
-        float currentH = getHeightAt(trueHeight, prevX, prevY, cellSize);
-        float candidateH = getHeightAt(trueHeight, candidateX, candidateY, cellSize);
-        float dh = candidateH - currentH;
+        // Compute the distance traveled (and ensure it is at least one cell to avoid division issues).
         float d = std::sqrt((candidateX - prevX) * (candidateX - prevX) +
             (candidateY - prevY) * (candidateY - prevY));
+        float effective_d = std::max(d, cellSize);
 
-        // Only check slope if d is nonzero.
-        if (d > 1e-6f) {
-            // Compute the slope (in radians).
-            float slope = std::atan2(dh, d);
-            // Define a maximum allowed uphill slope (e.g., 30 degrees).
-            const float maxUpSlope = 5.0f * 3.14159265f / 180.0f;
-            // If slope is positive (uphill) and exceeds the limit, reject the move.
-            if (slope > maxUpSlope) {
-                x = prevX;
-                y = prevY;
-                rotating = true;
-                return;
-            }
+        // Get the height at the current and candidate positions.
+        float currentH = getHeightAt(trueHeight, prevX, prevY, cellSize);
+        float candidateH = getHeightAt(trueHeight, candidateX, candidateY, cellSize);
+        float slopeRatio = (candidateH - currentH) / effective_d; // positive: uphill, negative: downhill
+
+        // Parameters.
+        const float steepThreshold = 0.25f;  // 25% slope threshold
+        const float PI = 3.14159265f;
+        auto normalizeAngle = [PI](float angle) -> float {
+            while (angle > PI)  angle -= 2 * PI;
+            while (angle < -PI) angle += 2 * PI;
+            return angle;
+            };
+
+        // If the local slope is too steep (either uphill or downhill), adjust heading.
+        if (std::fabs(slopeRatio) > steepThreshold) {
+            float eps = cellSize;  // use one cell as a small offset
+            float hRight = getHeightAt(trueHeight, prevX + eps, prevY, cellSize);
+            float hLeft = getHeightAt(trueHeight, prevX - eps, prevY, cellSize);
+            float hDown = getHeightAt(trueHeight, prevX, prevY + eps, cellSize);
+            float hUp = getHeightAt(trueHeight, prevX, prevY - eps, cellSize);
+            float gradX = (hRight - hLeft) / (2 * eps);
+            float gradY = (hDown - hUp) / (2 * eps);
+            float desiredTheta;
+            // If too steep uphill, steer toward downhill; if too steep downhill, steer toward uphill.
+            if (slopeRatio > steepThreshold)
+                desiredTheta = std::atan2(-gradY, -gradX); // downhill direction
             else
-            {
-                rotating = false;
-            }
-            // If slope is negative, the robot is moving downhill,
-            // and you may allow even steep slopes.
+                desiredTheta = std::atan2(gradY, gradX);     // uphill direction
+            float angleDiff = normalizeAngle(desiredTheta - theta);
+            const float rotationGain = 0.1f;  // adjust as needed
+            theta += rotationGain * angleDiff;
+            rotating = true;
+            // Recompute candidate new position using updated heading (full speed remains unchanged).
+            candidateX = x + v * std::cos(theta) * dt;
+            candidateY = y + v * std::sin(theta) * dt;
         }
-        // --- End height check ---
+        else {
+            rotating = false;
+        }
 
-        // Update position.
+        // Update the robot's position.
         x = candidateX;
         y = candidateY;
 
-        // Collision check (unchanged).
+        // Standard collision check.
         int collision = checkCollision(occupancy, robots);
         if (collision == 0) {
             rotating = false;
@@ -275,13 +289,15 @@ struct RescueRobot {
         else if (collision == 2) {
             v = 0;
             dead = true;
-            timeDeath = currentTime;  // Record the death time.
+            timeDeath = currentTime;
             return;
         }
 
-        // Update discovered occupancy and heat maps.
+        // Update sensor measurements.
         measure(occupancy, unknownOccupancy, foundBy, trueHeat, knownHeat, currentTime);
     }
+
+
 };
 
 int RescueRobot::static_id = 0;
