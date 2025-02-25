@@ -377,6 +377,7 @@ public:
                                grid.foundBy,              // foundBy grid
                                known_grid.heat,           // true heat map
                                grid.heat,                 // discovered heat map
+                               known_grid.height,
                                t);                        // current simulation time
                 }
                 updateCounter++;

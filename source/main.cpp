@@ -354,7 +354,7 @@ int main() {
 
         // Initialize robots using public initialization functions.
         simulation.initializeRescueRobots(valid_rr_x, valid_rr_y, rr_angle);
-        simulation.vrActive = true;
+        simulation.vrActive = false;
         simulation.initializeVineRobot(valid_vr_x, valid_vr_y, vr_angle);
         /*if (coin(gen)) {
             simulation.vrActive = true;
@@ -512,10 +512,11 @@ int main() {
                 glMatrixMode(GL_MODELVIEW);
                 glPushMatrix();
                 glLoadIdentity();
+                //renderGradientMap(simulation, renderScaleFactor);
+                renderGrid(simulation, renderScaleFactor);
+                renderHeightMap(simulation, renderScaleFactor);
                 renderRobots(simulation, renderScaleFactor);
                 renderVineRobot(simulation, renderScaleFactor);
-                renderGradientMap(simulation, renderScaleFactor);
-                //renderHeightMap(simulation, renderScaleFactor);
                 glPopMatrix();
                 glMatrixMode(GL_PROJECTION);
                 glPopMatrix();
@@ -792,7 +793,8 @@ int main_0() {
             glLoadIdentity();
             renderRobots(simulation, renderScaleFactor);
             renderVineRobot(simulation, renderScaleFactor);
-            renderGradientMap(simulation, renderScaleFactor);
+            //renderGradientMap(simulation, renderScaleFactor);
+            renderHeightMap(simulation, renderScaleFactor);
             glPopMatrix();
             glMatrixMode(GL_PROJECTION);
             glPopMatrix();
@@ -971,7 +973,9 @@ int main_0() {
         glLoadIdentity();
         renderRobots(simulation, renderScaleFactor);
         renderVineRobot(simulation, renderScaleFactor);
-        renderGradientMap(simulation, renderScaleFactor);
+        //renderGradientMap(simulation, renderScaleFactor);
+        renderHeightMap(simulation, renderScaleFactor);
+        renderRobots(simulation, renderScaleFactor);
         glPopMatrix();
         glMatrixMode(GL_PROJECTION);
         glPopMatrix();

@@ -539,39 +539,45 @@ inline void renderHeightMap(const Simulation& simulation, float scaleFactor, flo
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             float h = simulation.known_grid.height[i][j];
-            if (!std::isfinite(h)) {
-                // Render undefined (NaN) heights as black.
+            int cell = simulation.known_grid.occupancy[i][j];
+            if (cell == 0) {
                 glColor3f(0.0f, 0.0f, 0.0f);
             }
-            else {
-                // Normalize using the fixed range.
-                float norm = (h - minHeight) / (maxHeight - minHeight);
-                norm = std::clamp(norm, 0.0f, 1.0f);
-                float r, g, b;
-                // Use a "jet" colormap: blue -> cyan -> green -> yellow -> red.
-                if (norm < 0.25f) {
-                    r = 0.0f;
-                    g = 4.0f * norm;
-                    b = 1.0f;
-                }
-                else if (norm < 0.5f) {
-                    r = 0.0f;
-                    g = 1.0f;
-                    b = 1.0f - 4.0f * (norm - 0.25f);
-                }
-                else if (norm < 0.75f) {
-                    r = 4.0f * (norm - 0.5f);
-                    g = 1.0f;
-                    b = 0.0f;
+            else
+            {
+                if (!std::isfinite(h)) {
+                    // Render undefined (NaN) heights as black.
+                    glColor3f(0.0f, 0.0f, 0.0f);
                 }
                 else {
-                    r = 1.0f;
-                    g = 1.0f - 4.0f * (norm - 0.75f);
-                    b = 0.0f;
+                    // Normalize using the fixed range.
+                    float norm = (h - minHeight) / (maxHeight - minHeight);
+                    norm = std::clamp(norm, 0.0f, 1.0f);
+                    float r, g, b;
+                    // Use a "jet" colormap: blue -> cyan -> green -> yellow -> red.
+                    if (norm < 0.25f) {
+                        r = 0.0f;
+                        g = 4.0f * norm;
+                        b = 1.0f;
+                    }
+                    else if (norm < 0.5f) {
+                        r = 0.0f;
+                        g = 1.0f;
+                        b = 1.0f - 4.0f * (norm - 0.25f);
+                    }
+                    else if (norm < 0.75f) {
+                        r = 4.0f * (norm - 0.5f);
+                        g = 1.0f;
+                        b = 0.0f;
+                    }
+                    else {
+                        r = 1.0f;
+                        g = 1.0f - 4.0f * (norm - 0.75f);
+                        b = 0.0f;
+                    }
+                    glColor3f(r, g, b);
                 }
-                glColor3f(r, g, b);
             }
-
             float left = j * cellSize;
             float top = i * cellSize;
             float right = left + cellSize;

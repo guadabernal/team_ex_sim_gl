@@ -133,7 +133,7 @@ struct RescueRobot {
         return 0;
     }
 
-    void move(float dt, const std::vector<std::vector<int>>& occupancy, const std::vector<RescueRobot>& robots,
+    void move_bak(float dt, const std::vector<std::vector<int>>& occupancy, const std::vector<RescueRobot>& robots,
         const std::vector<std::vector<int>>& trueOccupancy, std::vector<std::vector<int>>& unknownOccupancy, std::vector<std::vector<int>>& foundBy,
         const std::vector<std::vector<float>>& trueHeat, std::vector<std::vector<float>>& knownHeat, float currentTime)
     {
@@ -177,7 +177,111 @@ struct RescueRobot {
         // Update the discovered occupancy grid.
         measure(occupancy, unknownOccupancy, foundBy, trueHeat, knownHeat, currentTime);
 
-    }   
+    }
+
+
+    // Helper to get height at world coordinates (x,y) from a height grid.
+    float getHeightAt(const std::vector<std::vector<float>>& heightMap, float x, float y, float cellSize)
+    {
+        int rows = heightMap.size();
+        int cols = heightMap[0].size();
+        int col = static_cast<int>(x / cellSize);
+        int row = static_cast<int>(y / cellSize);
+        // Clamp indices to grid bounds.
+        row = std::max(0, std::min(row, rows - 1));
+        col = std::max(0, std::min(col, cols - 1));
+        return heightMap[row][col];
+    }
+
+    // Modified move function for RescueRobot that now also accounts for terrain height.
+    // (Assumes an extra parameter 'trueHeight' is passed in, representing the true height grid.)
+    void move(float dt,
+        const std::vector<std::vector<int>>& occupancy,
+        const std::vector<RescueRobot>& robots,
+        const std::vector<std::vector<int>>& trueOccupancy,
+        std::vector<std::vector<int>>& unknownOccupancy,
+        std::vector<std::vector<int>>& foundBy,
+        const std::vector<std::vector<float>>& trueHeat,
+        std::vector<std::vector<float>>& knownHeat,
+        const std::vector<std::vector<float>>& trueHeight,  // NEW: height grid (meters)
+        float currentTime)
+    {
+        // Do not update if not yet spawned or already dead.
+        if (currentTime < spawnTime || dead)
+            return;
+
+        float prevX = x, prevY = y;
+
+        // Update heading.
+        if (rotating) {
+            const float ROTATE_DELTA = 0.1f;
+            theta += ROTATE_DELTA;
+        }
+        else {
+            static std::default_random_engine rng(std::random_device{}());
+            static std::uniform_real_distribution<float> angleDist(-0.1f, 0.1f);
+            theta += angleDist(rng);
+        }
+
+        // Compute candidate new position.
+        float candidateX = x + v * std::cos(theta) * dt;
+        float candidateY = y + v * std::sin(theta) * dt;
+
+        // --- New: Check the height difference ---
+        // Get the current and candidate heights.
+        float currentH = getHeightAt(trueHeight, prevX, prevY, cellSize);
+        float candidateH = getHeightAt(trueHeight, candidateX, candidateY, cellSize);
+        float dh = candidateH - currentH;
+        float d = std::sqrt((candidateX - prevX) * (candidateX - prevX) +
+            (candidateY - prevY) * (candidateY - prevY));
+
+        // Only check slope if d is nonzero.
+        if (d > 1e-6f) {
+            // Compute the slope (in radians).
+            float slope = std::atan2(dh, d);
+            // Define a maximum allowed uphill slope (e.g., 30 degrees).
+            const float maxUpSlope = 5.0f * 3.14159265f / 180.0f;
+            // If slope is positive (uphill) and exceeds the limit, reject the move.
+            if (slope > maxUpSlope) {
+                x = prevX;
+                y = prevY;
+                rotating = true;
+                return;
+            }
+            else
+            {
+                rotating = false;
+            }
+            // If slope is negative, the robot is moving downhill,
+            // and you may allow even steep slopes.
+        }
+        // --- End height check ---
+
+        // Update position.
+        x = candidateX;
+        y = candidateY;
+
+        // Collision check (unchanged).
+        int collision = checkCollision(occupancy, robots);
+        if (collision == 0) {
+            rotating = false;
+        }
+        else if (collision == 1) {
+            x = prevX;
+            y = prevY;
+            rotating = true;
+            return;
+        }
+        else if (collision == 2) {
+            v = 0;
+            dead = true;
+            timeDeath = currentTime;  // Record the death time.
+            return;
+        }
+
+        // Update discovered occupancy and heat maps.
+        measure(occupancy, unknownOccupancy, foundBy, trueHeat, knownHeat, currentTime);
+    }
 };
 
 int RescueRobot::static_id = 0;
