@@ -128,6 +128,7 @@ std::string constructSimResult(const Simulation& sim) {
     ss << "  \"rescue_robot_metrics\": [" << rrMetricsSS.str() << "],\n";
     ss << "  \"vine_robot_coverage\": " << vineCoverage << ",\n";
     ss << "  \"total_coverage\": " << totalCoverage << ",\n";
+    ss << "  \"coverage_over_time\": " << pairVectorToJson(sim.coverageHistory) << ",\n";
     ss << "  \"final_occupancy_map\": " << vector2DToJson(sim.grid.occupancy) << ",\n";
     ss << "  \"final_heat_map\": " << vector2DToJson(sim.grid.heat) << "\n";
     ss << "}";
@@ -251,7 +252,8 @@ float chooseTheta(float x, float y, float totalSize, std::mt19937& gen) {
     return theta_deg * 3.14159265f / 180.0f;
 }
 
-Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<float>& posDist) {
+Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<float>& posDist, bool useVine)
+{
     SimConsts simConsts;
     simConsts.cellSize = 0.05f;
     simConsts.totalSize = 20.0f;
@@ -261,7 +263,7 @@ Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<fl
     simConsts.nHoles = 8;
     simConsts.nPeople = 4;
     simConsts.maxTime = 30 * 60.0f;
-    simConsts.dt = 0.1f;
+    simConsts.dt = 0.05f;
     simConsts.rrTime = 60.0f;
 
     // Create a temporary occupancy grid for candidate testing.
@@ -272,20 +274,30 @@ Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<fl
     std::vector<Hole> holes = generateHolesList_custom1();
     updateOccupancyWithHoles(tempOcc, holes, simConsts.cellSize);
 
-    // Find valid start positions.
-    float valid_vr_x, valid_vr_y, valid_rr_x, valid_rr_y;
+    // Find valid start position for the vine robot.
+    float valid_vr_x, valid_vr_y;
     do {
         valid_vr_x = posDist(gen);
         valid_vr_y = posDist(gen);
     } while (!isCandidateValid(valid_vr_x, valid_vr_y, tempOcc, simConsts.cellSize, simConsts.totalSize));
-    do {
-        valid_rr_x = posDist(gen);
-        valid_rr_y = posDist(gen);
-    } while (!isCandidateValid(valid_rr_x, valid_rr_y, tempOcc, simConsts.cellSize, simConsts.totalSize));
+
+    // For rescue robots, if useVine is false, set their start to match the vine’s.
+    float valid_rr_x, valid_rr_y;
+    if (useVine) {
+        do {
+            valid_rr_x = posDist(gen);
+            valid_rr_y = posDist(gen);
+        } while (!isCandidateValid(valid_rr_x, valid_rr_y, tempOcc, simConsts.cellSize, simConsts.totalSize));
+    }
+    else {
+        valid_rr_x = valid_vr_x;
+        valid_rr_y = valid_vr_y;
+    }
 
     // Choose heading angles.
     float vr_angle = chooseTheta(valid_vr_x, valid_vr_y, simConsts.totalSize, gen);
-    float rr_angle = chooseTheta(valid_rr_x, valid_rr_y, simConsts.totalSize, gen);
+    // If vine is not used for rescue, use the vine’s angle.
+    float rr_angle = useVine ? chooseTheta(valid_rr_x, valid_rr_y, simConsts.totalSize, gen) : vr_angle;
 
     // Assign positions and angles.
     simConsts.vrX = valid_vr_x;
@@ -297,25 +309,36 @@ Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<fl
 
     // Create the Simulation instance and initialize the robots.
     Simulation simulation(simConsts);
-    simulation.initializeRescueRobots(valid_rr_x, valid_rr_y, rr_angle);
-    simulation.initializeVineRobot(valid_vr_x, valid_vr_y, vr_angle);
+    simulation.initializeRescueRobots(valid_rr_x, valid_rr_y, rr_angle, &gen);
+    simulation.initializeVineRobot(valid_vr_x, valid_vr_y, vr_angle, &gen);
 
     return simulation;
 }
 
+
 int main() {
     // Toggle to enable (or disable) the GUI mode.
     bool useGUI = true;
+    std::string outputFilename = "vr_rr_20.json";
+    bool activeVR = true;
+    bool activeRR = true;
 
-    std::random_device rd;
-    std::mt19937 gen(rd());
+
+
+    /*std::random_device rd;
+    std::mt19937 gen(rd());*/
+    
     std::uniform_real_distribution<float> posDist(0.0f, 20.0f);
-    std::bernoulli_distribution coin(0.5);
 
     if (useGUI) {
-        Simulation simulation = createSimulation(gen, posDist);
-        simulation.vrActive = true;
-        simulation.rrActive = true;
+        unsigned seed = 10;
+        std::mt19937 gen(seed);
+
+        
+
+        Simulation simulation = createSimulation(gen, posDist, activeVR);
+        simulation.vrActive = activeVR;
+        simulation.rrActive = activeRR;
 
         glfwSetErrorCallback(glfw_error_callback);
         if (!glfwInit()) {
@@ -540,17 +563,32 @@ int main() {
     else {
         // ----- Batch (Non-GUI) Mode -----
         const int n_simulations = 20;
-        for (int mode = 0; mode < 2; mode++) {
-            for (int simIndex = 0; simIndex < n_simulations; simIndex++) {
-                Simulation simulation = createSimulation(gen, posDist);
-                simulation.vrActive = (mode == 0);
-                simulation.rrActive = true;
+        for (int simIndex = 0; simIndex < n_simulations; simIndex++) {
+            unsigned seed = simIndex;
+            std::mt19937 gen(seed);
 
-                while (!simulation.update()) {}
-                saveSimulationResults(simulation, "vr_rr_10.json");
-            }
+            Simulation simulation_vr = createSimulation(gen, posDist, true);
+            simulation_vr.vrActive = true;
+            simulation_vr.rrActive = true;
+            while (!simulation_vr.update()) {}
+            saveSimulationResults(simulation_vr, outputFilename);
+
+            std::mt19937 gen2(seed);
+            Simulation simulation_no_vr = createSimulation(gen2, posDist, false);
+            simulation_no_vr.vrActive = false;
+            simulation_no_vr.rrActive = true;
+            while (!simulation_no_vr.update()) {}
+            saveSimulationResults(simulation_no_vr, outputFilename);
+
+            std::mt19937 gen3(seed);
+            Simulation simulation_no_rr = createSimulation(gen3, posDist, true);
+            simulation_no_rr.vrActive = true;
+            simulation_no_rr.rrActive = false;
+            while (!simulation_no_rr.update()) {}
+            saveSimulationResults(simulation_no_rr, outputFilename);
         }
-        std::system("python ../scripts/plot_results.py");
+        std::string cmd = "python ../scripts/plot_results.py " + outputFilename;
+        std::system(cmd.c_str());
     }
 
     return 0;

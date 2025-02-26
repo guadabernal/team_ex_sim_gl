@@ -103,8 +103,6 @@ inline void updateInterpolatedHeatMap(Grid& grid) {
     }
 
 }
-
-
 inline void heatmapUpdate(const std::vector<std::vector<int>>& occupancy,std::vector<std::vector<float>>& heat,float dt,float dx)
 {
     int rows = heat.size();
@@ -234,12 +232,14 @@ struct SimConsts
     int getGridRows() const { return static_cast<int>(totalSize / cellSize); }
 };
 
-// Simulation class that contains two grids and a vector of RescueRobot objects.
 class Simulation {
 public:
     SimConsts consts;
     Grid known_grid;
     Grid grid;
+
+    std::vector<std::pair<float, float>> coverageHistory;
+
 
     std::vector<RescueRobot> rr;
     VineRobot vr;
@@ -254,7 +254,6 @@ public:
     int nextRrSpawnIndex;
     int updateCounter = 0;
 
-    // Constructor initializes grids, maps, holes, etc.
     Simulation(const SimConsts& s)
         : known_grid(s.getGridRows(), s.getGridCols(), s.cellSize)
         , grid(s.getGridRows(), s.getGridRows(), s.cellSize)
@@ -262,64 +261,49 @@ public:
         , rrActive(false)
         , vrActive(false)
         , nextRrSpawnIndex(0)
-        , vr(s.vrX, s.vrY, s.vrAngle)
     {
-        // Initialize heat map, generate occupancy map, holes, etc.
         initializeHeatMap(10.0f, 20.0f);
         generateOfficeMap(known_grid.occupancy, consts.cellSize, 0.15f, 0.9f);
         holes = generateHolesList_custom1();
         updateOccupancyWithHoles(known_grid.occupancy, holes, consts.cellSize);
         HeightMapGenerator::generateHeightMap(known_grid.height, known_grid.gradX, known_grid.gradY, consts.cellSize, holes);
 
-        // Populate people positions.
         personPositions.push_back({ 1.5f, 1.5f });
         personPositions.push_back({ 7.0f, 5.8f });
         personPositions.push_back({ 19.0f, 6.5f });
         personPositions.push_back({ 12.0f, 15.3f });
     }
 
-    void initializeRescueRobots(float startX, float startY, float startTheta) {
+    void initializeRescueRobots(float startX, float startY, float startTheta, std::mt19937* rng_ptr) {
         rr.clear();
-        // For example, we create 15 rescue robots with a spawn time offset.
-        for (int i = 0; i < 15; i++) {
-            // Use the provided start condition for each robot.
-            RescueRobot robot(startX, startY, startTheta, consts.rrTime * i, consts.cellSize, true, true);
+        for (int i = 0; i < consts.nRobots; i++) {
+            RescueRobot robot(startX, startY, startTheta, consts.rrTime * i, consts.cellSize, true, true, rng_ptr);
             rr.push_back(robot);
         }
         nextRrSpawnIndex = 0;
     }
 
-    // Optionally, you can also add an initializer for the vine robot.
-    void initializeVineRobot(float startX, float startY, float startTheta) {
-        // Reinitialize the vine robot with new parameters.
-        vr = VineRobot(startX, startY, startTheta);
+    void initializeVineRobot(float startX, float startY, float startTheta, std::mt19937* rng_ptr) {
+        vr = VineRobot(startX, startY, startTheta, rng_ptr);
     }
 
     bool update() {
-        // Update the heat map.
         heatmapUpdate(known_grid.occupancy, known_grid.heat, consts.dt, consts.cellSize);
         injectHeatSources(known_grid.heat, personPositions, 37.0f, consts.cellSize);
 
-        // Update the vine robot if active.
         if (vrActive) {
-            vr.move(known_grid.occupancy, known_grid.cellSize,consts.dt);
-            vr.measure(known_grid.occupancy, grid.occupancy, grid.foundBy, known_grid.heat, grid.heat, known_grid.cellSize, t);
+            vr.move(known_grid.occupancy, known_grid.cellSize, consts.dt);
+            if (!rrActive) {
+                vr.measure(known_grid.occupancy, grid.occupancy, grid.foundBy, known_grid.heat, grid.heat, known_grid.cellSize, t);
+            }
         }
 
-        // Update rescue robots if active.
         if (rrActive) {
-            // When both vine and rescue robots are active, spawn rescue robots
-            // at their designated spawn times using the vine tip as the spawn location.
             if (nextRrSpawnIndex < rr.size()) {
                 if (t >= rr[nextRrSpawnIndex].spawnTime) {
-                    // Get the intended spawn point from the vine tip.
                     std::pair<float, float> spawnPoint;
-                    if (vrActive) {
-                        spawnPoint = vr.tip();
-                    }
-                    else {
-                        spawnPoint = { rr[nextRrSpawnIndex].x, rr[nextRrSpawnIndex].y };
-                    }
+                    if (vrActive) { spawnPoint = vr.tip(); }
+                    else { spawnPoint = { rr[nextRrSpawnIndex].x, rr[nextRrSpawnIndex].y }; }
 
                     float requiredDistance = 1.2f * rr[nextRrSpawnIndex].size;
                     float scale = known_grid.cellSize;
@@ -357,7 +341,7 @@ public:
                             spawnPoint.second += (dy / norm) * adjust;
                         }
                     }
-                    // Set the spawn location and mark the robot as spawned.
+                    // set the spawn location and mark the robot as spawned
                     rr[nextRrSpawnIndex].x = spawnPoint.first;
                     rr[nextRrSpawnIndex].y = spawnPoint.second;
                     rr[nextRrSpawnIndex].spawned = true;
@@ -366,28 +350,31 @@ public:
                     std::cout << "Spawned RR #" << nextRrSpawnIndex << std::endl;
                 }
             }
-            // Update all spawned rescue robots.
+            
             for (auto &robot : rr) {
                 if (robot.spawned && !robot.dead) {
-                    robot.move(consts.dt,
-                               known_grid.occupancy,
-                               rr,                        // list of rescue robots
-                               known_grid.occupancy,      // true occupancy grid
-                               grid.occupancy,            // discovered occupancy grid
-                               grid.foundBy,              // foundBy grid
-                               known_grid.heat,           // true heat map
-                               grid.heat,                 // discovered heat map
-                               known_grid.height,
-                               t);                        // current simulation time
+                    robot.move(consts.dt, known_grid.occupancy, rr, known_grid.occupancy, grid.occupancy, grid.foundBy, known_grid.heat, grid.heat, known_grid.height, t);                        
                 }
                 updateCounter++;
-                // Only update the interpolated heat map every 50 iterations.
-                if (updateCounter % 50 == 0) {
-                    //updateInterpolatedHeatMap(grid);
-                    //std::cout << "updated heat map" << std::endl;
-                }
+                /*if (updateCounter % 50 == 0) {
+                    updateInterpolatedHeatMap(grid);
+                    std::cout << "updated heat map" << std::endl;
+                }*/
 
             }
+        }
+
+        // record % over time details for plotting
+        {
+            int discoveredCells = 0;
+            for (const auto& row : grid.foundBy) {
+                for (int cell : row) {
+                    if (cell != -1) discoveredCells++;
+                }
+            }
+            int totalCells = grid.foundBy.size() * grid.foundBy[0].size();
+            float coveragePercent = (static_cast<float>(discoveredCells) / totalCells) * 100.0f;
+            coverageHistory.push_back({ t, coveragePercent });
         }
 
         t += consts.dt;
@@ -400,19 +387,17 @@ public:
         if (rows == 0) return;
         int cols = known_grid.heat[0].size();
 
-        // Set every cell to the ambient base temperature.
+        // set every cell to the ambient base temperature
         for (int i = 0; i < rows; i++) {
             for (int j = 0; j < cols; j++) {
                 known_grid.heat[i][j] = baseTemp;
             }
         }
 
-        // Simulate the heat diffusion for the given initialization time.
+        // simulate the heat diffusion for the given initialization time
         float accumulatedTime = 0.0f;
         while (accumulatedTime < initTime) {
-            // Diffuse the heat map using the current occupancy information.
             heatmapUpdate(known_grid.occupancy, known_grid.heat, consts.dt, consts.cellSize);
-            // Re-inject heat sources so they remain at personTemp.
             injectHeatSources(known_grid.heat, personPositions, 37.0f, consts.cellSize);
             accumulatedTime += consts.dt;
         }
