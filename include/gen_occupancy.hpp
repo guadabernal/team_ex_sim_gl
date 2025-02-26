@@ -46,7 +46,7 @@ OfficeDefinition office_02(float floor_width, float floor_height, float doorWidt
 
     // Define sub-rooms
     Room room1(0.00f, 0.00f, 6.0f, 3.0f);
-    room1.addDoorRelativeFixWidth(3, 0.2f, 0.9f);
+    room1.addDoorRelativeFixWidth(3, 0.5f, 0.9f);
     layout.rooms.push_back(room1);
 
     Room room2(6.0f, 0.00f, 4.0f, 3.0f);
@@ -61,9 +61,9 @@ OfficeDefinition office_02(float floor_width, float floor_height, float doorWidt
     room4.addDoorRelativeFixWidth(3, 0.2f, 0.9f);
     layout.rooms.push_back(room4);
 
-    Room room5(0.00f, 3.0f, 2.0f, 3.0f);
+    /*Room room5(0.00f, 3.0f, 2.0f, 3.0f);
     room5.addDoorRelativeFixWidth(0, 0.5f, 0.9f);
-    layout.rooms.push_back(room5);
+    layout.rooms.push_back(room5);*/
 
     Room room6(6.0f, 3.0f, 4.0f, 2.0f);
     room6.addDoorRelativeFixWidth(2, 0.5f, 0.9f);

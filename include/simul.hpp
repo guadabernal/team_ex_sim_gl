@@ -253,6 +253,7 @@ public:
 
     int nextRrSpawnIndex;
     int updateCounter = 0;
+    bool lastVineReversingState;
 
     Simulation(const SimConsts& s)
         : known_grid(s.getGridRows(), s.getGridCols(), s.cellSize)
@@ -261,6 +262,7 @@ public:
         , rrActive(false)
         , vrActive(false)
         , nextRrSpawnIndex(0)
+        , lastVineReversingState(false)
     {
         initializeHeatMap(10.0f, 20.0f);
         generateOfficeMap(known_grid.occupancy, consts.cellSize, 0.15f, 0.9f);
@@ -298,70 +300,82 @@ public:
             }
         }
 
-        if (rrActive) {
-            if (nextRrSpawnIndex < rr.size()) {
-                if (t >= rr[nextRrSpawnIndex].spawnTime) {
-                    std::pair<float, float> spawnPoint;
-                    if (vrActive) { spawnPoint = vr.tip(); }
-                    else { spawnPoint = { rr[nextRrSpawnIndex].x, rr[nextRrSpawnIndex].y }; }
+        if (rrActive && nextRrSpawnIndex < rr.size() && t >= rr[nextRrSpawnIndex].spawnTime) {
+            std::pair<float, float> spawnPoint;
+            bool dropNow = false;
+            if (vrActive) {
+                // If vine is active, drop off only at the moment when it starts reversing.
+                if (!lastVineReversingState && vr.reversing) {
+                    spawnPoint = vr.tip();
+                    dropNow = true;
+                }
+            }
+            else {
+                // If vine is off, drop off immediately at the rescue robot's starting location.
+                // (Assuming that in createSimulation, we set rrX and rrY to the vine's start if vine is off.)
+                spawnPoint = { consts.rrX, consts.rrY };
+                dropNow = true;
+            }
 
-                    float requiredDistance = 1.2f * rr[nextRrSpawnIndex].size;
-                    float scale = known_grid.cellSize;
-                    int gridRows = known_grid.occupancy.size();
-                    int gridCols = known_grid.occupancy[0].size();
+            if (dropNow) {
+                float requiredDistance = 1.2f * rr[nextRrSpawnIndex].size;
+                float scale = known_grid.cellSize;
+                int gridRows = known_grid.occupancy.size();
+                int gridCols = known_grid.occupancy[0].size();
 
-                    int startRow = std::max(0, (int)std::floor((spawnPoint.second - requiredDistance) / scale));
-                    int endRow = std::min(gridRows - 1, (int)std::floor((spawnPoint.second + requiredDistance) / scale));
-                    int startCol = std::max(0, (int)std::floor((spawnPoint.first - requiredDistance) / scale));
-                    int endCol = std::min(gridCols - 1, (int)std::floor((spawnPoint.first + requiredDistance) / scale));
+                int startRow = std::max(0, (int)std::floor((spawnPoint.second - requiredDistance) / scale));
+                int endRow = std::min(gridRows - 1, (int)std::floor((spawnPoint.second + requiredDistance) / scale));
+                int startCol = std::max(0, (int)std::floor((spawnPoint.first - requiredDistance) / scale));
+                int endCol = std::min(gridCols - 1, (int)std::floor((spawnPoint.first + requiredDistance) / scale));
 
-                    float minDist = std::numeric_limits<float>::max();
-                    std::pair<float, float> closestWallCenter;
-                    for (int r = startRow; r <= endRow; r++) {
-                        for (int c = startCol; c <= endCol; c++) {
-                            if (known_grid.occupancy[r][c] == 0) {  // wall cell
-                                float cellCenterX = (c + 0.5f) * scale;
-                                float cellCenterY = (r + 0.5f) * scale;
-                                float dist = std::sqrt((spawnPoint.first - cellCenterX) * (spawnPoint.first - cellCenterX) +
-                                    (spawnPoint.second - cellCenterY) * (spawnPoint.second - cellCenterY));
-                                if (dist < minDist) {
-                                    minDist = dist;
-                                    closestWallCenter = { cellCenterX, cellCenterY };
-                                }
+                float minDist = std::numeric_limits<float>::max();
+                std::pair<float, float> closestWallCenter;
+                for (int r = startRow; r <= endRow; r++) {
+                    for (int c = startCol; c <= endCol; c++) {
+                        if (known_grid.occupancy[r][c] == 0) {  // wall cell
+                            float cellCenterX = (c + 0.5f) * scale;
+                            float cellCenterY = (r + 0.5f) * scale;
+                            float dist = std::sqrt((spawnPoint.first - cellCenterX) * (spawnPoint.first - cellCenterX) +
+                                (spawnPoint.second - cellCenterY) * (spawnPoint.second - cellCenterY));
+                            if (dist < minDist) {
+                                minDist = dist;
+                                closestWallCenter = { cellCenterX, cellCenterY };
                             }
                         }
                     }
-                    if (minDist < requiredDistance) {
-                        float adjust = requiredDistance - minDist;
-                        float dx = spawnPoint.first - closestWallCenter.first;
-                        float dy = spawnPoint.second - closestWallCenter.second;
-                        float norm = std::sqrt(dx * dx + dy * dy);
-                        if (norm > 0) {
-                            spawnPoint.first += (dx / norm) * adjust;
-                            spawnPoint.second += (dy / norm) * adjust;
-                        }
-                    }
-                    // set the spawn location and mark the robot as spawned
-                    rr[nextRrSpawnIndex].x = spawnPoint.first;
-                    rr[nextRrSpawnIndex].y = spawnPoint.second;
-                    rr[nextRrSpawnIndex].spawned = true;
-                    rr[nextRrSpawnIndex].spawnTime = t;
-                    nextRrSpawnIndex++;
-                    std::cout << "Spawned RR #" << nextRrSpawnIndex << std::endl;
                 }
+                if (minDist < requiredDistance) {
+                    float adjust = requiredDistance - minDist;
+                    float dx = spawnPoint.first - closestWallCenter.first;
+                    float dy = spawnPoint.second - closestWallCenter.second;
+                    float norm = std::sqrt(dx * dx + dy * dy);
+                    if (norm > 0) {
+                        spawnPoint.first += (dx / norm) * adjust;
+                        spawnPoint.second += (dy / norm) * adjust;
+                    }
+                }
+                // set the spawn location and mark the robot as spawned
+                rr[nextRrSpawnIndex].x = spawnPoint.first;
+                rr[nextRrSpawnIndex].y = spawnPoint.second;
+                rr[nextRrSpawnIndex].spawned = true;
+                rr[nextRrSpawnIndex].spawnTime = t;
+                nextRrSpawnIndex++;
+                //std::cout << "Spawned RR #" << nextRrSpawnIndex << std::endl;
+                std::cout << "Spawned RR #" << nextRrSpawnIndex << " at time " << t << std::endl;
             }
             
-            for (auto &robot : rr) {
-                if (robot.spawned && !robot.dead) {
-                    robot.move(consts.dt, known_grid.occupancy, rr, known_grid.occupancy, grid.occupancy, grid.foundBy, known_grid.heat, grid.heat, known_grid.height, t);                        
-                }
-                updateCounter++;
-                /*if (updateCounter % 50 == 0) {
-                    updateInterpolatedHeatMap(grid);
-                    std::cout << "updated heat map" << std::endl;
-                }*/
+        }
 
+        for (auto& robot : rr) {
+            if (robot.spawned && !robot.dead) {
+                robot.move(consts.dt, known_grid.occupancy, rr, known_grid.occupancy, grid.occupancy, grid.foundBy, known_grid.heat, grid.heat, known_grid.height, t);
             }
+            updateCounter++;
+            /*if (updateCounter % 50 == 0) {
+                updateInterpolatedHeatMap(grid);
+                std::cout << "updated heat map" << std::endl;
+            }*/
+
         }
 
         // record % over time details for plotting
@@ -378,6 +392,7 @@ public:
         }
 
         t += consts.dt;
+        lastVineReversingState = vr.reversing;
         return t >= consts.maxTime;
     }
 

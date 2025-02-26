@@ -191,7 +191,6 @@ void saveSimulationResults(const Simulation& sim, const std::string& filename) {
     }
 }
 
-
 bool isCandidateValid(float x, float y, const std::vector<std::vector<int>>& occ, float cellSize, float totalSize) {
     float distToBoundary = std::min({ x, totalSize - x, y, totalSize - y });
     if (distToBoundary > 2.0f)
@@ -225,19 +224,19 @@ float chooseTheta(float x, float y, float totalSize, std::mt19937& gen) {
     if (minDist == bottomDist) {
         // Candidate is nearest the bottom wall; inward normal is upward.
         // Allowed heading: between 20° and 160°.
-        angleDist = std::uniform_real_distribution<float>(20.0f, 160.0f);
+        angleDist = std::uniform_real_distribution<float>(50.0f, 130.0f);
         theta_deg = angleDist(gen);
     }
     else if (minDist == topDist) {
         // Nearest the top; inward normal is downward.
         // Allowed heading: between 200° and 340°.
-        angleDist = std::uniform_real_distribution<float>(200.0f, 340.0f);
+        angleDist = std::uniform_real_distribution<float>(230.0f, 310.0f);
         theta_deg = angleDist(gen);
     }
     else if (minDist == leftDist) {
         // Nearest the left wall; inward normal is to the right (0°).
         // To avoid too shallow an angle, choose from -20° to 70°.
-        angleDist = std::uniform_real_distribution<float>(-20.0f, 70.0f);
+        angleDist = std::uniform_real_distribution<float>(-40.0f, 40.0f);
         theta_deg = angleDist(gen);
         if (theta_deg < 0)
             theta_deg += 360.0f;
@@ -245,7 +244,7 @@ float chooseTheta(float x, float y, float totalSize, std::mt19937& gen) {
     else { // rightDist is smallest
         // Nearest the right wall; inward normal is to the left (180°).
         // Allowed range: [110, 250]°.
-        angleDist = std::uniform_real_distribution<float>(110.0f, 250.0f);
+        angleDist = std::uniform_real_distribution<float>(140.0f, 220.0f);
         theta_deg = angleDist(gen);
     }
     // Convert degrees to radians.
@@ -262,7 +261,7 @@ Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<fl
     simConsts.sigmaHoleSize = 0.2f;
     simConsts.nHoles = 8;
     simConsts.nPeople = 4;
-    simConsts.maxTime = 30 * 60.0f;
+    simConsts.maxTime = 90 * 60.0f;
     simConsts.dt = 0.05f;
     simConsts.rrTime = 60.0f;
 
@@ -318,12 +317,10 @@ Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<fl
 
 int main() {
     // Toggle to enable (or disable) the GUI mode.
-    bool useGUI = true;
-    std::string outputFilename = "vr_rr_20.json";
+    bool useGUI = false;
+    std::string outputFilename = "vr_rr_50_90min_full.json";
     bool activeVR = true;
     bool activeRR = true;
-
-
 
     /*std::random_device rd;
     std::mt19937 gen(rd());*/
@@ -331,10 +328,8 @@ int main() {
     std::uniform_real_distribution<float> posDist(0.0f, 20.0f);
 
     if (useGUI) {
-        unsigned seed = 10;
+        unsigned seed = 1;
         std::mt19937 gen(seed);
-
-        
 
         Simulation simulation = createSimulation(gen, posDist, activeVR);
         simulation.vrActive = activeVR;
@@ -562,7 +557,7 @@ int main() {
     }
     else {
         // ----- Batch (Non-GUI) Mode -----
-        const int n_simulations = 20;
+        const int n_simulations = 50;
         for (int simIndex = 0; simIndex < n_simulations; simIndex++) {
             unsigned seed = simIndex;
             std::mt19937 gen(seed);
@@ -586,6 +581,8 @@ int main() {
             simulation_no_rr.rrActive = false;
             while (!simulation_no_rr.update()) {}
             saveSimulationResults(simulation_no_rr, outputFilename);
+
+            std::cout << " =============== DONE " << simIndex << " =============== " << std::endl;
         }
         std::string cmd = "python ../scripts/plot_results.py " + outputFilename;
         std::system(cmd.c_str());

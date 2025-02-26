@@ -14,7 +14,7 @@
 constexpr float PI = 3.14159265f;
 
 // For picking random turn angles
-static constexpr float MAX_TURN_ANGLE_DEG = 5.0f;
+static constexpr float MAX_TURN_ANGLE_DEG = 4.0f;
 
 // -----------------------------------------
 // VineRobot (single-segment continuum)
@@ -72,6 +72,25 @@ struct VineRobot
                 // Now begin reversing from here
                 reversing = true;
                 //std::cout << "[DEBUG] Collision => start reversing from length=" << length << "\n";
+            }
+            else {
+                // Also check if the vine is forming a near loop back to its origin.
+                // (Only perform this check if the vine is long enough.)
+                if (length > 1.0f) {
+                    auto tipPos = tip();
+                    float dx = tipPos.first - baseX;
+                    float dy = tipPos.second - baseY;
+                    float distToBase = std::sqrt(dx * dx + dy * dy);
+                    if (distToBase < 0.1f) {
+                        // The tip is too close to the base (forming a near circle).
+                        // Revert the expansion and initiate reversal.
+                        length = oldLength;
+                        recomputeArcPoints();
+                        reversing = true;
+                        std::cout << "[DEBUG] Vine tip too close to base (distance = " << distToBase
+                            << " m). Initiating reversal to try a different angle.\n";
+                    }
+                }
             }
         }
         else {

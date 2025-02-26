@@ -44,7 +44,7 @@ struct HeatSensor
     float defaultUpdateInterval = 0.01f;
 
     HeatSensor(float cellSize = 0.5f, bool enabled = false)
-    : cellSize(cellSize), enabled(enabled), defaultUpdateInterval(defaultUpdateInterval) {}
+    : cellSize(cellSize), enabled(enabled) {}
 
     float meassure(const std::vector<std::vector<float>>& trueHeat, float x, float y, float currentTime) {
         if (currentTime - sensorLastUpdateTimes < defaultUpdateInterval)

@@ -328,9 +328,10 @@ namespace HeightMapGenerator {
         interpolateHeightInRect(height, 6, 10, 11, 15, 0, 0, 0, 0.6, cellSize);
         interpolateHeightInRect(height, 6, 10, 11, 15, 0, 0, 0, 0.6, cellSize);
         //interpolateHeightInRectWithCenter(height, 0.5, 13, 5.5, 19, 0, 0, 0, 0, 3, 16, -0.7, cellSize);
-        interpolateHeightInCircle(height, 3, 16, 3.5, 0, -0.6, cellSize);
+        interpolateHeightInCircle(height, 3, 16, 3.5, 0, 0.8, cellSize);
         interpolateHeightInRect(height, 6, 15, 11, 20, 0, 0.6, 0, 0, cellSize);
-        interpolateHeightInCircle(height, 16.5, 15, 2.5, 0, 0.8, cellSize);
+        
+        interpolateHeightInCircle(height, 16.5, 15, 2.5, 0, -0.8, cellSize);
 
         // Apply each hole.
         for (const Hole& h : holes)

@@ -156,7 +156,7 @@ def plot_aggregated_coverage_over_time(results):
             ind_color = "tomato"
             agg_color = "red"
         elif label == "RR Only":
-            ind_color = "palevgreen"
+            ind_color = "palegreen"
             agg_color = "green"
         
         # Plot the individual time series.
@@ -194,7 +194,7 @@ def main():
     data = load_data(filename)
     results = data.get("results", [])
         
-    plot_seed_results_by_seed(results)
+    plot_aggregated_coverage_over_time(results)
 
 if __name__ == "__main__":
     main()

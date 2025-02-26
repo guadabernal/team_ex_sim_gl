@@ -180,9 +180,9 @@ inline std::vector<Hole> generateHolesList_custom1() {
     holes.push_back(Hole(HoleShape::RECTANGLE, 7.0f, 7.0f, 1.5f, 0.2f, 1.0f));
     holes.push_back(Hole(HoleShape::RECTANGLE, 8.0f, 12.0f, 1.0f, 1.0f, 1.0f));
 
-    holes.push_back(Hole(HoleShape::CIRCLE, 3.0f, 16.0f, 0.5f, 1.0f));
+    holes.push_back(Hole(HoleShape::CIRCLE, 16.5, 15, 0.5f, 1.0f));
     holes.push_back(Hole(HoleShape::CIRCLE, 5.6f, 7.5f, 0.6f, 1.0f));
-    holes.push_back(Hole(HoleShape::CIRCLE, 4.5f, 3.5f, 0.5f, 1.0f));
+    holes.push_back(Hole(HoleShape::CIRCLE, 2.0f, 4.0f, 0.5f, 1.0f));
 
     return holes;
 }

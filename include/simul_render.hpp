@@ -155,8 +155,8 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
             if (norm < 0.0f) norm = 0.0f;
             if (norm > 1.0f) norm = 1.0f;
             // Linear interpolation: light blue (0.5,0.5,1.0) -> red (1.0,0.0,0.0).
-            float r = 0.8f + 0.8f * norm;
-            float g = 0.8f - 0.8f * norm;
+            float r = 1.0f;
+            float g = 1.0f - norm;
             float b = 1.0f - norm;
             glColor3f(r, g, b);
 
@@ -182,7 +182,7 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
                 glColor3f(0.0f, 0.0f, 0.0f);
             }
             else if (cell == 2) { // Hole
-                glColor3f(0.0f, 0.0f, 0.5f);
+                glColor3f(0.0f, 0.0f, 0.8f);
             }
             else {
                 continue; // No overlay for ground (value 1)
@@ -469,7 +469,6 @@ inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleF
     }
 }
 
-
 inline void renderGradientMap(const Simulation& simulation, float scaleFactor) {
     int rows = simulation.known_grid.gradX.size();
     if (rows == 0) return;
@@ -524,7 +523,6 @@ inline void renderGradientMap(const Simulation& simulation, float scaleFactor) {
         }
     }
 }
-
 
 inline void renderHeightMap(const Simulation& simulation, float scaleFactor, float fixedMin = -1, float fixedMax = 1) {
     int rows = simulation.known_grid.height.size();
