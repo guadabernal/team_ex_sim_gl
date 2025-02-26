@@ -7,7 +7,7 @@ struct Lidar {
     float defaultUpdateInterval = 0.1f;
     bool enabled = false;
     Lidar(float cellSize = 0.5f, bool enabled = false)
-        : cellSize(cellSize), enabled(enabled), defaultUpdateInterval(defaultUpdateInterval) {}
+        : cellSize(cellSize), enabled(enabled) {}
 
     float meassure(const std::vector<std::vector<int>>& occupancy, float x, float y, float theta, float currentTime) {
         if (currentTime - sensorLastUpdateTimes < defaultUpdateInterval)
