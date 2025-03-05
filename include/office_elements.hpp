@@ -175,14 +175,14 @@ inline std::vector<Hole> generateHolesList_custom1() {
     // Reserve space for 8 holes.
     holes.reserve(8);
 
-    holes.push_back(Hole(HoleShape::RECTANGLE, 14.5f, 2.0f, 0.5f, 1.5f, 1.0f));
-    holes.push_back(Hole(HoleShape::RECTANGLE, 14.0f, 3.2f, 0.5f, 1.2f, 1.0f));
+    holes.push_back(Hole(HoleShape::RECTANGLE, 15.0f, 7.0f, 1.5f, 0.5f, 1.0f));
+    //holes.push_back(Hole(HoleShape::RECTANGLE, 14.0f, 3.2f, 0.5f, 1.2f, 1.0f));
     holes.push_back(Hole(HoleShape::RECTANGLE, 7.0f, 7.0f, 1.5f, 0.2f, 1.0f));
     holes.push_back(Hole(HoleShape::RECTANGLE, 8.0f, 12.0f, 1.0f, 1.0f, 1.0f));
 
     holes.push_back(Hole(HoleShape::CIRCLE, 16.5, 15, 0.5f, 1.0f));
-    holes.push_back(Hole(HoleShape::CIRCLE, 5.6f, 7.5f, 0.6f, 1.0f));
-    holes.push_back(Hole(HoleShape::CIRCLE, 2.0f, 4.0f, 0.5f, 1.0f));
+    holes.push_back(Hole(HoleShape::CIRCLE, 4.5f, 13.0f, 0.6f, 1.0f));
+    holes.push_back(Hole(HoleShape::CIRCLE, 3.0f, 3.8f, 0.5f, 1.0f));
 
     return holes;
 }

@@ -249,11 +249,13 @@ public:
 
     float t = 0;
     std::vector<std::pair<float, float>> personPositions;
+    std::vector<float> personFoundTimes;
     std::vector<Hole> holes;
 
     int nextRrSpawnIndex;
     int updateCounter = 0;
     bool lastVineReversingState;
+    float delta_drop_time;
 
     Simulation(const SimConsts& s)
         : known_grid(s.getGridRows(), s.getGridCols(), s.cellSize)
@@ -274,10 +276,13 @@ public:
         personPositions.push_back({ 7.0f, 5.8f });
         personPositions.push_back({ 19.0f, 6.5f });
         personPositions.push_back({ 12.0f, 15.3f });
+
+        personFoundTimes.resize(personPositions.size(), -1.0f);
     }
 
     void initializeRescueRobots(float startX, float startY, float startTheta, std::mt19937* rng_ptr) {
         rr.clear();
+        delta_drop_time = consts.rrTime;
         for (int i = 0; i < consts.nRobots; i++) {
             RescueRobot robot(startX, startY, startTheta, consts.rrTime * i, consts.cellSize, true, true, rng_ptr);
             rr.push_back(robot);
@@ -289,9 +294,28 @@ public:
         vr = VineRobot(startX, startY, startTheta, rng_ptr);
     }
 
+    void HeatUpdate_forPlot() {
+        heatmapUpdate(known_grid.occupancy, known_grid.heat, consts.dt, consts.cellSize);
+        injectHeatSources(known_grid.heat, personPositions, 37.0f, consts.cellSize);
+    }
+
     bool update() {
         heatmapUpdate(known_grid.occupancy, known_grid.heat, consts.dt, consts.cellSize);
         injectHeatSources(known_grid.heat, personPositions, 37.0f, consts.cellSize);
+
+        for (size_t i = 0; i < personPositions.size(); i++) {
+            if (personFoundTimes[i] < 0) {
+                for (const auto& robot : rr) {
+                    float dx = robot.x - personPositions[i].first;
+                    float dy = robot.y - personPositions[i].second;
+                    if (std::sqrt(dx * dx + dy * dy) < 0.50f) {
+                        personFoundTimes[i] = t;
+                        std::cout << "Rescue Robot " << robot.id << " found person " << i << " at time " << t << " sec." << std::endl;
+                        break;
+                    }
+                }
+            }
+        }
 
         if (vrActive) {
             vr.move(known_grid.occupancy, known_grid.cellSize, consts.dt);
@@ -305,10 +329,18 @@ public:
             bool dropNow = false;
             if (vrActive) {
                 // If vine is active, drop off only at the moment when it starts reversing.
-                if (!lastVineReversingState && vr.reversing) {
+                if (delta_drop_time == 0) {
+                    if (!lastVineReversingState && vr.reversing) {
+                        spawnPoint = vr.tip();
+                        dropNow = true;
+                    }
+                }
+                else
+                {
                     spawnPoint = vr.tip();
                     dropNow = true;
                 }
+                
             }
             else {
                 // If vine is off, drop off immediately at the rescue robot's starting location.

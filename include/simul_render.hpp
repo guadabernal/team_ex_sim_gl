@@ -8,6 +8,27 @@
 #include <algorithm>
 #include <iomanip>
 
+#include <fstream>
+#include <vector>
+#include <string>
+#include <fstream>
+#include <iostream>
+#include <string>
+
+// Helper function to set the heat map color (same as in renderHeatMap())
+inline void setHeatMapColor(float temp) {
+    const float baseTemp = 20.0f;
+    const float maxTemp = 37.0f;
+    float norm = (temp - baseTemp) / (maxTemp - baseTemp);
+    norm = std::clamp(norm, 0.0f, 1.0f);
+    float t = norm;
+    float r = (1.0f - t) * 0.980f + t * 0.290f;
+    float g = (1.0f - t) * 0.941f + t * 0.000f;
+    float b = (1.0f - t) * 1.000f + t * 0.118f;
+    glColor3f(r, g, b);
+}
+
+
 inline void renderRobots(const Simulation& simulation, float scaleFactor) {
     for (const auto& robot : simulation.rr) {
         if (!robot.spawned || robot.dead && robot.battery > 0)
@@ -144,20 +165,23 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
     int cols = simulation.known_grid.heat[0].size();
     float cellSize = simulation.known_grid.cellSize * scaleFactor;
 
-    // Define the temperature range.
-    const float baseTemp = 20.0f;  // Light blue at 20°C.
-    const float maxTemp = 37.0f;   // Full red at 37°C.
+    // Temperature range.
+    const float baseTemp = 20.0f;  // Room temp: white (#faf0ff)
+    const float maxTemp = 37.0f;   // Hottest: dark red (#4a001e)
 
+    // For each cell in the heat grid.
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             float temp = simulation.known_grid.heat[i][j];
             float norm = (temp - baseTemp) / (maxTemp - baseTemp);
-            if (norm < 0.0f) norm = 0.0f;
-            if (norm > 1.0f) norm = 1.0f;
-            // Linear interpolation: light blue (0.5,0.5,1.0) -> red (1.0,0.0,0.0).
-            float r = 1.0f;
-            float g = 1.0f - norm;
-            float b = 1.0f - norm;
+            norm = std::clamp(norm, 0.0f, 1.0f);
+            // Interpolate from white to dark red.
+            // White (#faf0ff): (0.980, 0.941, 1.0)
+            // Dark red (#4a001e): (0.290, 0.000, 0.118)
+            float t = norm;
+            float r = (1.0f - t) * 0.980f + t * 0.290f;
+            float g = (1.0f - t) * 0.941f + t * 0.0f;
+            float b = (1.0f - t) * 1.0f + t * 0.118f;
             glColor3f(r, g, b);
 
             float left = j * cellSize;
@@ -172,17 +196,18 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
             glEnd();
         }
     }
-
+    const float holeColor[3] = { 0.0f, 44.0f / 255.0f, 45.0f / 255.0f };    // #002C2D
+    // Overlay walls.
     int occRows = simulation.known_grid.occupancy.size();
     int occCols = simulation.known_grid.occupancy[0].size();
     for (int y = 0; y < occRows; y++) {
         for (int x = 0; x < occCols; x++) {
             int cell = simulation.known_grid.occupancy[y][x];
-            if (cell == 0) { // Wall
+            if (cell == 0) { // Wall -> black
                 glColor3f(0.0f, 0.0f, 0.0f);
             }
-            else if (cell == 2) { // Hole
-                glColor3f(0.0f, 0.0f, 0.8f);
+            else if (cell == 2) { // Hole -> blue (unchanged)
+                glColor3f(holeColor[0], holeColor[1], holeColor[2]);
             }
             else {
                 continue; // No overlay for ground (value 1)
@@ -199,16 +224,15 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
             glEnd();
         }
     }
+
+    // Draw person markers (unchanged).
     float cellSizePixels = simulation.known_grid.cellSize * scaleFactor;
     for (const auto& pos : simulation.personPositions) {
-        // 'pos' is in grid coordinates, so add 0.5 to center in the cell.
+        // Center in the cell.
         float centerX = (pos.first / simulation.known_grid.cellSize + 0.5f) * cellSizePixels;
         float centerY = (pos.second / simulation.known_grid.cellSize + 0.5f) * cellSizePixels;
-        // Convert the person's physical radius (in meters) to screen pixels.
         float radiusScreen = 0.15f * scaleFactor;
-
-        // Draw the circle outline around the person.
-        glColor3f(0.0f, 0.0f, 0.0f); // Black
+        glColor3f(0.0f, 0.0f, 0.0f); // Black outline.
         glLineWidth(2.0f);
         const int numSegments = 50;
         glBegin(GL_LINE_LOOP);
@@ -219,8 +243,6 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
             glVertex2f(x, y);
         }
         glEnd();
-
-        // Draw an X at the center of the heat source.
         float halfXSize = radiusScreen * 0.5f;
         glBegin(GL_LINES);
         glVertex2f(centerX - halfXSize, centerY - halfXSize);
@@ -237,41 +259,20 @@ inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFac
     int cols = simulation.grid.heat[0].size();
     float cellSize = simulation.known_grid.cellSize * scaleFactor;
 
-    // Temperature parameters.
-    const float baseTemp = 20.0f;  // Low measured temperature (for mapping)
-    const float maxTemp = 37.0f;   // High measured temperature (for mapping)
-
+    // Draw background: discovered ground cells use the heat map,
+    // unknown cells are drawn in a lighter grey.
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
-            // First, check occupancy.
             if (simulation.grid.occupancy[i][j] == -1) {
-                // Cell not discovered by the distance sensor: render as gray.
-                glColor3f(0.5f, 0.5f, 0.5f);
-            }
-            else if (simulation.grid.occupancy[i][j] == 0) {
-                // Discovered wall: render as black.
-                glColor3f(0.0f, 0.0f, 0.0f);
+                glColor3f(0.8f, 0.8f, 0.8f);
             }
             else if (simulation.grid.occupancy[i][j] == 1) {
-                // Discovered ground cell.
                 float temp = simulation.grid.heat[i][j];
-                if (temp == 0.0f) {
-                    // If the cell hasn't been updated by the heat sensor, render as white.
+                if (temp == 0.0f)
                     glColor3f(1.0f, 1.0f, 1.0f);
-                }
-                else {
-                    // Otherwise, map the measured temperature from light blue to red.
-                    float norm = (temp - baseTemp) / (maxTemp - baseTemp);
-                    if (norm < 0.0f) norm = 0.0f;
-                    if (norm > 1.0f) norm = 1.0f;
-                    // At norm==0: light blue (0.5, 0.5, 1.0), at norm==1: red (1.0, 0.0, 0.0)
-                    float r = 0.8f + 0.8f * norm;
-                    float g = 0.8f - 0.8f * norm;
-                    float b = 1.0f - norm;
-                    glColor3f(r, g, b);
-                }
+                else
+                    setHeatMapColor(temp);
             }
-
             float left = j * cellSize;
             float top = i * cellSize;
             float right = left + cellSize;
@@ -284,24 +285,53 @@ inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFac
             glEnd();
         }
     }
-
-    // Optionally, overlay discovered walls to reinforce boundaries.
-    int occRows = simulation.grid.occupancy.size();
-    int occCols = simulation.grid.occupancy[0].size();
+    const float holeColor[3] = { 0.0f, 44.0f / 255.0f, 45.0f / 255.0f };    // #002C2D
+    // Overlay walls and holes from the true occupancy grid.
+    int occRows = simulation.known_grid.occupancy.size();
+    int occCols = simulation.known_grid.occupancy[0].size();
     for (int y = 0; y < occRows; y++) {
         for (int x = 0; x < occCols; x++) {
-            if (simulation.grid.occupancy[y][x] == 0) { // Wall
-                glColor3f(0.0f, 0.0f, 0.0f);
+            int trueCell = simulation.known_grid.occupancy[y][x];
+            if (trueCell == 0 || trueCell == 2) {
                 float left = x * cellSize;
                 float top = y * cellSize;
                 float right = left + cellSize;
                 float bottom = top + cellSize;
-                glBegin(GL_QUADS);
-                glVertex2f(left, top);
-                glVertex2f(right, top);
-                glVertex2f(right, bottom);
-                glVertex2f(left, bottom);
-                glEnd();
+                if (trueCell == 2) {
+                    // For holes always fill with dark blue.
+                    
+                    glColor3f(holeColor[0], holeColor[1], holeColor[2]);
+                    glBegin(GL_QUADS);
+                    glVertex2f(left, top);
+                    glVertex2f(right, top);
+                    glVertex2f(right, bottom);
+                    glVertex2f(left, bottom);
+                    glEnd();
+                }
+                else {
+                    // For walls (trueCell==0) use discovery status.
+                    bool discovered = (simulation.grid.occupancy[y][x] == trueCell);
+                    if (discovered) {
+                        glColor3f(0.0f, 0.0f, 0.0f); // discovered wall: black
+                        glBegin(GL_QUADS);
+                        glVertex2f(left, top);
+                        glVertex2f(right, top);
+                        glVertex2f(right, bottom);
+                        glVertex2f(left, bottom);
+                        glEnd();
+                    }
+                    else {
+                        glColor3f(0.3f, 0.3f, 0.3f); // undiscovered wall: dark grey outline
+                        glLineWidth(1.0f);
+                        float inset = cellSize * 0.2f;
+                        glBegin(GL_LINE_LOOP);
+                        glVertex2f(left + inset, top + inset);
+                        glVertex2f(right - inset, top + inset);
+                        glVertex2f(right - inset, bottom - inset);
+                        glVertex2f(left + inset, bottom - inset);
+                        glEnd();
+                    }
+                }
             }
         }
     }
@@ -313,13 +343,23 @@ inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
         return;
     }
 
-    // Draw each vine point as a small green circle.
     glColor3f(0.0f, 0.8f, 0.0f); // Bright green.
+    glLineWidth(2.0f); // Adjust line thickness if needed.
+    glBegin(GL_LINE_STRIP);
+    for (size_t i = 0; i < vine.points.size(); ++i) {
+        float px = vine.points[i].first * scaleFactor;
+        float py = vine.points[i].second * scaleFactor;
+        glVertex2f(px, py);
+    }
+    glEnd();
+
+    // Optionally, draw each vine point as a small green circle.
     constexpr float pointRadius = 1.0f;  // radius in pixels.
     constexpr int circleSegments = 12;
     for (size_t i = 0; i < vine.points.size(); ++i) {
         float px = vine.points[i].first * scaleFactor;
         float py = vine.points[i].second * scaleFactor;
+        glColor3f(0.0f, 0.8f, 0.0f); // Maintain bright green.
         glBegin(GL_TRIANGLE_FAN);
         glVertex2f(px, py);
         for (int j = 0; j <= circleSegments; ++j) {
@@ -336,7 +376,7 @@ inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
     float tipX = tip.first * scaleFactor;
     float tipY = tip.second * scaleFactor;
     glColor3f(0.0f, 0.5f, 0.0f); // Darker green.
-    constexpr float tipRadius = 6.0f;
+    constexpr float tipRadius = 5.0f;
     glBegin(GL_TRIANGLE_FAN);
     glVertex2f(tipX, tipY);
     for (int i = 0; i <= circleSegments; ++i) {
@@ -346,65 +386,6 @@ inline void renderVineRobot(const Simulation& simulation, float scaleFactor) {
         glVertex2f(cx, cy);
     }
     glEnd();
-
-    //// --- New: Draw an arrow from the first point to the second point.
-    //if (vine.points.size() >= 2) {
-    //    // Get first and second points.
-    //    float p0x = vine.points[0].first * scaleFactor;
-    //    float p0y = vine.points[0].second * scaleFactor;
-    //    float p1x = vine.points[1].first * scaleFactor;
-    //    float p1y = vine.points[1].second * scaleFactor;
-
-    //    // Draw the arrow shaft.
-    //    glColor3f(0.0f, 0.0f, 1.0f); // Blue color for the arrow.
-    //    glLineWidth(2.0f);
-    //    glBegin(GL_LINES);
-    //    glVertex2f(p0x, p0y);
-    //    glVertex2f(p1x, p1y);
-    //    glEnd();
-
-    //    // Compute arrowhead parameters.
-    //    float dx = p1x - p0x;
-    //    float dy = p1y - p0y;
-    //    float len = std::sqrt(dx * dx + dy * dy);
-    //    if (len > 1e-6f) {
-    //        // Arrowhead length and angle.
-    //        float arrowLength = 10.0f; // in pixels
-    //        float arrowAngle = 30.0f * (3.14159265f / 180.0f); // 30 degrees in radians
-    //        // Unit direction.
-    //        float ux = dx / len;
-    //        float uy = dy / len;
-    //        // Rotate the unit vector by +arrowAngle and -arrowAngle.
-    //        float leftX = std::cos(arrowAngle) * ux - std::sin(arrowAngle) * uy;
-    //        float leftY = std::sin(arrowAngle) * ux + std::cos(arrowAngle) * uy;
-    //        float rightX = std::cos(-arrowAngle) * ux - std::sin(-arrowAngle) * uy;
-    //        float rightY = std::sin(-arrowAngle) * ux + std::cos(-arrowAngle) * uy;
-    //        // Arrowhead points: from p1 subtract the rotated vectors scaled to arrowLength.
-    //        float leftTipX = p1x - arrowLength * leftX;
-    //        float leftTipY = p1y - arrowLength * leftY;
-    //        float rightTipX = p1x - arrowLength * rightX;
-    //        float rightTipY = p1y - arrowLength * rightY;
-
-    //        // Draw filled triangle for arrowhead.
-    //        glColor3f(0.0f, 0.0f, 1.0f); // same blue.
-    //        glBegin(GL_TRIANGLES);
-    //        glVertex2f(p1x, p1y);
-    //        glVertex2f(leftTipX, leftTipY);
-    //        glVertex2f(rightTipX, rightTipY);
-    //        glEnd();
-    //    }
-    //}
-
-    // Draw the global turn line if set.
-    //if (!(g_turnLine.start.first == 0.0f && g_turnLine.start.second == 0.0f &&
-    //    g_turnLine.end.first == 0.0f && g_turnLine.end.second == 0.0f)) {
-    //    glColor3f(1.0f, 0.0f, 0.0f); // Red.
-    //    glLineWidth(2.0f);
-    //    glBegin(GL_LINES);
-    //    glVertex2f(g_turnLine.start.first * scaleFactor, g_turnLine.start.second * scaleFactor);
-    //    glVertex2f(g_turnLine.end.first * scaleFactor, g_turnLine.end.second * scaleFactor);
-    //    glEnd();
-    //}
 }
 
 inline void renderInterpolatedHeatMap(const Simulation& simulation, float scaleFactor) {
@@ -534,6 +515,24 @@ inline void renderHeightMap(const Simulation& simulation, float scaleFactor, flo
     float minHeight = fixedMin;
     float maxHeight = fixedMax;
 
+    // Define normalized breakpoints for the 7 stops.
+    const float v0 = 0.0f;
+    const float v1 = 0.1667f;
+    const float v2 = 0.3333f;
+    const float v3 = 0.5f;
+    const float v4 = 0.6667f;
+    const float v5 = 0.8333f;
+    const float v6 = 1.0f;
+
+    // Precomputed normalized RGB values for each stop.
+    const float c0[3] = { 88.0f / 255.0f, 0.0f, 0.0f };          // #580000
+    const float c1[3] = { 156.0f / 255.0f, 69.0f / 255.0f, 17.0f / 255.0f };  // #9C4511
+    const float c2[3] = { 221.0f / 255.0f, 134.0f / 255.0f, 41.0f / 255.0f }; // #DD8629
+    const float c3[3] = { 1.0f, 1.0f, 224.0f / 255.0f };          // #FFFFE0
+    const float c4[3] = { 62.0f / 255.0f, 168.0f / 255.0f, 166.0f / 255.0f }; // #3EA8A6
+    const float c5[3] = { 7.0f / 255.0f, 103.0f / 255.0f, 105.0f / 255.0f };  // #076769
+    const float c6[3] = { 0.0f, 44.0f / 255.0f, 45.0f / 255.0f };    // #002C2D
+
     for (int i = 0; i < rows; i++) {
         for (int j = 0; j < cols; j++) {
             float h = simulation.known_grid.height[i][j];
@@ -541,37 +540,52 @@ inline void renderHeightMap(const Simulation& simulation, float scaleFactor, flo
             if (cell == 0) {
                 glColor3f(0.0f, 0.0f, 0.0f);
             }
-            else
-            {
+            else {
                 if (!std::isfinite(h)) {
-                    // Render undefined (NaN) heights as black.
+                    // Render undefined heights as black.
                     glColor3f(0.0f, 0.0f, 0.0f);
                 }
                 else {
-                    // Normalize using the fixed range.
+                    // Normalize height using the fixed range.
                     float norm = (h - minHeight) / (maxHeight - minHeight);
                     norm = std::clamp(norm, 0.0f, 1.0f);
+                    norm = 1.0f - norm;
                     float r, g, b;
-                    // Use a "jet" colormap: blue -> cyan -> green -> yellow -> red.
-                    if (norm < 0.25f) {
-                        r = 0.0f;
-                        g = 4.0f * norm;
-                        b = 1.0f;
+                    if (norm < v1) {
+                        float t = (norm - v0) / (v1 - v0);
+                        r = c0[0] + t * (c1[0] - c0[0]);
+                        g = c0[1] + t * (c1[1] - c0[1]);
+                        b = c0[2] + t * (c1[2] - c0[2]);
                     }
-                    else if (norm < 0.5f) {
-                        r = 0.0f;
-                        g = 1.0f;
-                        b = 1.0f - 4.0f * (norm - 0.25f);
+                    else if (norm < v2) {
+                        float t = (norm - v1) / (v2 - v1);
+                        r = c1[0] + t * (c2[0] - c1[0]);
+                        g = c1[1] + t * (c2[1] - c1[1]);
+                        b = c1[2] + t * (c2[2] - c1[2]);
                     }
-                    else if (norm < 0.75f) {
-                        r = 4.0f * (norm - 0.5f);
-                        g = 1.0f;
-                        b = 0.0f;
+                    else if (norm < v3) {
+                        float t = (norm - v2) / (v3 - v2);
+                        r = c2[0] + t * (c3[0] - c2[0]);
+                        g = c2[1] + t * (c3[1] - c2[1]);
+                        b = c2[2] + t * (c3[2] - c2[2]);
+                    }
+                    else if (norm < v4) {
+                        float t = (norm - v3) / (v4 - v3);
+                        r = c3[0] + t * (c4[0] - c3[0]);
+                        g = c3[1] + t * (c4[1] - c3[1]);
+                        b = c3[2] + t * (c4[2] - c3[2]);
+                    }
+                    else if (norm < v5) {
+                        float t = (norm - v4) / (v5 - v4);
+                        r = c4[0] + t * (c5[0] - c4[0]);
+                        g = c4[1] + t * (c5[1] - c4[1]);
+                        b = c4[2] + t * (c5[2] - c4[2]);
                     }
                     else {
-                        r = 1.0f;
-                        g = 1.0f - 4.0f * (norm - 0.75f);
-                        b = 0.0f;
+                        float t = (norm - v5) / (v6 - v5);
+                        r = c5[0] + t * (c6[0] - c5[0]);
+                        g = c5[1] + t * (c6[1] - c5[1]);
+                        b = c5[2] + t * (c6[2] - c5[2]);
                     }
                     glColor3f(r, g, b);
                 }
@@ -591,5 +605,176 @@ inline void renderHeightMap(const Simulation& simulation, float scaleFactor, flo
     }
 }
 
+// Add this function to your simul_render.hpp
 
+inline void renderFifthFigure(const Simulation& simulation, float scaleFactor) {
+    int rows = simulation.known_grid.occupancy.size();
+    int cols = simulation.known_grid.occupancy[0].size();
+    float cellSize = simulation.known_grid.cellSize * scaleFactor;
 
+    const float holeColor[3] = { 0.0f, 44.0f / 255.0f, 45.0f / 255.0f };    // #002C2D
+    //glColor3f(holeColor[0], holeColor[1], holeColor[2]);
+
+    // Draw background using discovered heat values or light grey if unknown.
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            if (simulation.grid.occupancy[i][j] != -1) {
+                float temp = simulation.grid.heat[i][j];
+                if (temp == 0.0f)
+                    glColor3f(1.0f, 1.0f, 1.0f);
+                else
+                    setHeatMapColor(temp);
+            }
+            else {
+                glColor3f(0.8f, 0.8f, 0.8f);  // lighter grey for unknown
+            }
+            float left = j * cellSize;
+            float top = i * cellSize;
+            float right = left + cellSize;
+            float bottom = top + cellSize;
+            glBegin(GL_QUADS);
+            glVertex2f(left, top);
+            glVertex2f(right, top);
+            glVertex2f(right, bottom);
+            glVertex2f(left, bottom);
+            glEnd();
+        }
+    }
+
+    // Overlay walls/holes using the true occupancy grid.
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            int trueCell = simulation.known_grid.occupancy[i][j];
+            if (trueCell == 0 || trueCell == 2) {
+                float left = j * cellSize;
+                float top = i * cellSize;
+                float right = left + cellSize;
+                float bottom = top + cellSize;
+                if (trueCell == 2) {
+                    // Always fill holes with dark blue.
+                    glColor3f(holeColor[0], holeColor[1], holeColor[2]);
+                    glBegin(GL_QUADS);
+                    glVertex2f(left, top);
+                    glVertex2f(right, top);
+                    glVertex2f(right, bottom);
+                    glVertex2f(left, bottom);
+                    glEnd();
+                }
+                else {
+                    // For walls (trueCell==0), check discovery status.
+                    bool discovered = (simulation.grid.occupancy[i][j] == trueCell);
+                    if (discovered) {
+                        glColor3f(0.0f, 0.0f, 0.0f); // discovered wall: black
+                        glBegin(GL_QUADS);
+                        glVertex2f(left, top);
+                        glVertex2f(right, top);
+                        glVertex2f(right, bottom);
+                        glVertex2f(left, bottom);
+                        glEnd();
+                    }
+                    else {
+                        // Undiscovered wall: draw a thin outline.
+                        glColor3f(0.3f, 0.3f, 0.3f);
+                        glLineWidth(1.0f);
+                        float inset = cellSize * 0.2f;
+                        glBegin(GL_LINE_LOOP);
+                        glVertex2f(left + inset, top + inset);
+                        glVertex2f(right - inset, top + inset);
+                        glVertex2f(right - inset, bottom - inset);
+                        glVertex2f(left + inset, bottom - inset);
+                        glEnd();
+                    }
+                }
+            }
+        }
+    }
+
+    // Overlay the robots.
+    renderRobots(simulation, scaleFactor);
+    renderVineRobot(simulation, scaleFactor);
+
+    // Draw people as filled red circles.
+    // Use the same cell size conversion for positioning.
+    float cellSizePixels = simulation.known_grid.cellSize * scaleFactor;
+    const int numSegments = 50;
+    for (const auto& pos : simulation.personPositions) {
+        // Compute the cell center where the person is located.
+        float centerX = (pos.first / simulation.known_grid.cellSize + 0.5f) * cellSizePixels;
+        float centerY = (pos.second / simulation.known_grid.cellSize + 0.5f) * cellSizePixels;
+        // Use the standard person radius.
+        float radiusScreen = 0.15f * scaleFactor;
+        glColor3f(0.290, 0.000, 0.118); // filled red
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex2f(centerX, centerY);  // center
+        for (int k = 0; k <= numSegments; k++) {
+            float angle = 2.0f * 3.14159265f * k / numSegments;
+            float x = centerX + radiusScreen * cosf(angle);
+            float y = centerY + radiusScreen * sinf(angle);
+            glVertex2f(x, y);
+        }
+        glEnd();
+    }
+}
+
+// saving data as csv
+
+void saveHeightMapToCSV(const Simulation& simulation, const std::string& filename) {
+    int rows = simulation.known_grid.height.size();
+    if (rows == 0) return;
+    int cols = simulation.known_grid.height[0].size();
+    std::ofstream ofs(filename);
+    if (!ofs.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+        return;
+    }
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            ofs << simulation.known_grid.height[i][j];
+            if (j < cols - 1)
+                ofs << ",";
+        }
+        ofs << "\n";
+    }
+    ofs.close();
+}
+void saveOccupancyToCSV(const Simulation& simulation, const std::string& filename) {
+    int rows = simulation.known_grid.occupancy.size();
+    if (rows == 0) return;
+    int cols = simulation.known_grid.occupancy[0].size();
+    std::ofstream ofs(filename);
+    if (!ofs.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+        return;
+    }
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            ofs << simulation.known_grid.occupancy[i][j];
+            if (j < cols - 1)
+                ofs << ",";
+        }
+        ofs << "\n";
+    }
+    ofs.close();
+}
+void saveHeatMapToCSV(const Simulation& simulation, const std::string& filename) {
+    int rows = simulation.known_grid.heat.size();
+    if (rows == 0) return;
+    int cols = simulation.known_grid.heat[0].size();
+
+    std::ofstream ofs(filename);
+    if (!ofs.is_open()) {
+        std::cerr << "Error opening file: " << filename << std::endl;
+        return;
+    }
+
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            ofs << simulation.known_grid.heat[i][j];
+            if (j < cols - 1)
+                ofs << ",";
+        }
+        ofs << "\n";
+    }
+
+    ofs.close();
+}

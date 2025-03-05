@@ -27,8 +27,12 @@
 #include "rescue_robot.hpp"
 
 
-const int WINDOW_WIDTH = 1800;
-const int WINDOW_HEIGHT = 1200;
+//const int WINDOW_WIDTH = 1800;
+//const int WINDOW_HEIGHT = 1200;
+
+const int WINDOW_WIDTH = 2600;
+const int WINDOW_HEIGHT = 2000;
+
 const int numCols = 3;
 const int numRows = 2;
 int colWidth = WINDOW_WIDTH / numCols;
@@ -69,6 +73,18 @@ std::string vector2DToJson(const std::vector<std::vector<T>>& vec) {
         }
         ss << "]";
         firstRow = false;
+    }
+    ss << "]";
+    return ss.str();
+}
+std::string vectorToJson(const std::vector<float>& vec) {
+    std::stringstream ss;
+    ss << "[";
+    bool first = true;
+    for (float val : vec) {
+        if (!first) ss << ", ";
+        ss << val;
+        first = false;
     }
     ss << "]";
     return ss.str();
@@ -121,16 +137,16 @@ std::string constructSimResult(const Simulation& sim) {
 
     std::stringstream ss;
     ss << "{\n";
-    ss << "  \"active_robots\": {\"vr\": " << (sim.vrActive ? "true" : "false")
-        << ", \"rr\": " << (sim.rrActive ? "true" : "false") << "},\n";
-    ss << "  \"num_rr_deployed\": "
-        << std::count_if(sim.rr.begin(), sim.rr.end(), [](const RescueRobot& r) { return r.spawned; }) << ",\n";
+    ss << "  \"active_robots\": {\"vr\": " << (sim.vrActive ? "true" : "false") << ", \"rr\": " << (sim.rrActive ? "true" : "false") << "},\n";
+    ss << "  \"num_rr_deployed\": " << std::count_if(sim.rr.begin(), sim.rr.end(), [](const RescueRobot& r) { return r.spawned; }) << ",\n";
     ss << "  \"rescue_robot_metrics\": [" << rrMetricsSS.str() << "],\n";
     ss << "  \"vine_robot_coverage\": " << vineCoverage << ",\n";
     ss << "  \"total_coverage\": " << totalCoverage << ",\n";
+    ss << "  \"delta_drop_time\": " << sim.delta_drop_time << ",\n";
     ss << "  \"coverage_over_time\": " << pairVectorToJson(sim.coverageHistory) << ",\n";
     ss << "  \"final_occupancy_map\": " << vector2DToJson(sim.grid.occupancy) << ",\n";
-    ss << "  \"final_heat_map\": " << vector2DToJson(sim.grid.heat) << "\n";
+    ss << "  \"final_heat_map\": " << vector2DToJson(sim.grid.heat) << ",\n";
+    ss << "  \"person_found_times\": " << vectorToJson(sim.personFoundTimes) << "\n";
     ss << "}";
     return ss.str();
 }
@@ -251,19 +267,19 @@ float chooseTheta(float x, float y, float totalSize, std::mt19937& gen) {
     return theta_deg * 3.14159265f / 180.0f;
 }
 
-Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<float>& posDist, bool useVine)
+Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<float>& posDist, bool useVine, float rrTime, float timeLength)
 {
     SimConsts simConsts;
     simConsts.cellSize = 0.05f;
     simConsts.totalSize = 20.0f;
-    simConsts.nRobots = 10;
+    simConsts.nRobots = 15;
     simConsts.muHoleSize = 0.5f;
     simConsts.sigmaHoleSize = 0.2f;
     simConsts.nHoles = 8;
     simConsts.nPeople = 4;
-    simConsts.maxTime = 90 * 60.0f;
-    simConsts.dt = 0.05f;
-    simConsts.rrTime = 60.0f;
+    simConsts.maxTime = timeLength; // 45 * 60.0f;
+    simConsts.dt = 0.2f; //0.05 for experiments
+    simConsts.rrTime = rrTime;
 
     // Create a temporary occupancy grid for candidate testing.
     int rows = simConsts.getGridRows();
@@ -317,8 +333,8 @@ Simulation createSimulation(std::mt19937& gen, std::uniform_real_distribution<fl
 
 int main() {
     // Toggle to enable (or disable) the GUI mode.
-    bool useGUI = false;
-    std::string outputFilename = "vr_rr_50_90min_full.json";
+    bool useGUI = true;
+    std::string outputFilename = "fullSet_n20.json";
     bool activeVR = true;
     bool activeRR = true;
 
@@ -328,12 +344,23 @@ int main() {
     std::uniform_real_distribution<float> posDist(0.0f, 20.0f);
 
     if (useGUI) {
-        unsigned seed = 1;
+        /*unsigned seed = 1;
         std::mt19937 gen(seed);
 
-        Simulation simulation = createSimulation(gen, posDist, activeVR);
+        Simulation simulation = createSimulation(gen, posDist, activeVR, 60.0f, 2*60.0f);
         simulation.vrActive = activeVR;
-        simulation.rrActive = activeRR;
+        simulation.rrActive = activeRR;*/
+
+        const float timeLength = 90 * 60.0f;
+        unsigned seed = 4;
+        // VINE + RESCUE ROBOTS - one per min ----------------------------
+        std::mt19937 gen4(seed);
+        Simulation simulation = createSimulation(gen4, posDist, true, 60.0f, timeLength);
+        simulation.vrActive = true;
+        simulation.rrActive = true;
+        // ----------------------------------------------------------------
+
+
 
         glfwSetErrorCallback(glfw_error_callback);
         if (!glfwInit()) {
@@ -358,6 +385,7 @@ int main() {
 
 
         float viewWidth = WINDOW_WIDTH / 3.0f;
+        //float viewWidth = WINDOW_WIDTH / 2.0f;
         float renderScaleFactor = (float)colWidth / simulation.consts.totalSize;
 
         std::mutex simMutex;
@@ -378,6 +406,7 @@ int main() {
                 {
                     std::lock_guard<std::mutex> lock(simMutex);
                     done = simulation.update();     // SIMULATION GETS UPDATED HERE <----
+                    //simulation.HeatUpdate_forPlot();
                 }
                 if (done) simulationEnded = true;
                 auto now = std::chrono::steady_clock::now();
@@ -386,10 +415,10 @@ int main() {
                 if (renderElapsed > std::chrono::milliseconds(50)) {
                     //std::this_thread::sleep_for(std::chrono::milliseconds(1));
                     //std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    std::this_thread::sleep_for(std::chrono::nanoseconds(500));
+                    //std::this_thread::sleep_for(std::chrono::nanoseconds(500));
                     lastRenderTime = std::chrono::steady_clock::now();
                 }
-                //std::this_thread::sleep_for(std::chrono::nanoseconds(10));
+                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             }
             running.store(false);
         });
@@ -400,8 +429,8 @@ int main() {
             glfwPollEvents();
             glClear(GL_COLOR_BUFFER_BIT);
 
-            // Render viewports
-            {
+            // 6 Render viewports
+            /* {
                 std::lock_guard<std::mutex> lock(simMutex);
 
                 // left Top: True occupancy grid with robots
@@ -487,6 +516,7 @@ int main() {
 
                 //Incline map
                 glViewport(2 * colWidth, rowHeight, colWidth, rowHeight);
+                //glViewport(colWidth, 0, colWidth, rowHeight);
                 glMatrixMode(GL_PROJECTION);
                 glPushMatrix();
                 glLoadIdentity();
@@ -498,6 +528,94 @@ int main() {
                 renderVineRobot(simulation, renderScaleFactor);
                 //renderGradientMap(simulation, renderScaleFactor);
                 renderHeightMap(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+            }*/
+            
+            // 4 Render viewports
+            {
+                std::lock_guard<std::mutex> lock(simMutex);
+
+                
+                // True heat map
+                glViewport(0, 0, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderHeatMap(simulation, renderScaleFactor);
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+
+
+                // Right Top: discovered occupancy grid with robots (lidar view)
+                glViewport(colWidth, rowHeight, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderMeasurementGrid(simulation, renderScaleFactor);
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+
+                // discovered heat map from the robots heat sensors
+                glViewport(colWidth, 0, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, WINDOW_HEIGHT / 2, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderDiscoveredHeatMap(simulation, renderScaleFactor);
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+
+
+                //Incline map
+                glViewport(0, rowHeight, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderHeightMap(simulation, renderScaleFactor);
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
+                glPopMatrix();
+                glMatrixMode(GL_PROJECTION);
+                glPopMatrix();
+
+                //results map
+                glViewport(2*colWidth, rowHeight, colWidth, rowHeight);
+                glMatrixMode(GL_PROJECTION);
+                glPushMatrix();
+                glLoadIdentity();
+                glOrtho(0, viewWidth, rowHeight, 0, -1, 1);
+                glMatrixMode(GL_MODELVIEW);
+                glPushMatrix();
+                glLoadIdentity();
+                renderFifthFigure(simulation, renderScaleFactor);
+                renderRobots(simulation, renderScaleFactor);
+                renderVineRobot(simulation, renderScaleFactor);
                 glPopMatrix();
                 glMatrixMode(GL_PROJECTION);
                 glPopMatrix();
@@ -516,6 +634,51 @@ int main() {
 
         running.store(false);
         simThread.join();
+
+        /*saveHeightMapToCSV(simulation, "heightmap.csv");
+        saveOccupancyToCSV(simulation, "occupancy.csv");
+        saveHeatMapToCSV(simulation, "heatmap.csv");
+        std::system("python ../scripts/plot_height_map.py heightmap.csv occupancy.csv");
+        std::system("python ../scripts/plot_heat_map.py heatmap.csv occupancy.csv");*/
+
+        // After the simulation ends, capture the final fourth figure (assumed drawn in the viewport at (colWidth, 0, colWidth, rowHeight))
+        {
+            // Make sure all OpenGL commands have finished
+            glFlush();
+            glFinish();
+
+            // Set the viewport to the region of the fourth figure.
+            // (This should match the viewport used when drawing the discovered heat map.)
+            glViewport(colWidth, 0, colWidth, rowHeight);
+
+            // Define width and height of the viewport in pixels.
+            int width = colWidth;
+            int height = rowHeight;
+            std::vector<unsigned char> imageData(width * height * 3);
+
+            // Read pixels from the current viewport (using GL_RGB and unsigned byte format)
+            glReadPixels(colWidth, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, imageData.data());
+
+            // Save the image as a PPM file (a simple format that many scripts can easily read)
+            std::ofstream ofs("fourth_figure.ppm", std::ios::binary);
+            if (!ofs) {
+                std::cerr << "Error: could not open fourth_figure.ppm for writing." << std::endl;
+            }
+            else {
+                ofs << "P6\n" << width << " " << height << "\n255\n";
+                ofs.write(reinterpret_cast<char*>(imageData.data()), imageData.size());
+                ofs.close();
+                std::cout << "Fourth figure saved to fourth_figure.ppm" << std::endl;
+            }
+
+            // Now call your Python script to reformat the figure.
+            // (Assuming your Python script is called 'format_figure.py' and accepts the image filename as an argument.)
+            int ret = system("python ../scripts/format_figure.py fig1_vin_rr_1min.ppm");
+            if (ret != 0) {
+                std::cerr << "Error calling the python script." << std::endl;
+            }
+        }
+
 
         ImGui_ImplOpenGL2_Shutdown();
         ImGui_ImplGlfw_Shutdown();
@@ -557,35 +720,60 @@ int main() {
     }
     else {
         // ----- Batch (Non-GUI) Mode -----
-        const int n_simulations = 50;
-        for (int simIndex = 0; simIndex < n_simulations; simIndex++) {
-            unsigned seed = simIndex;
-            std::mt19937 gen(seed);
+        const int n_simulations = 1;
+        const float timeLength = 90 * 60.0f;
 
-            Simulation simulation_vr = createSimulation(gen, posDist, true);
-            simulation_vr.vrActive = true;
-            simulation_vr.rrActive = true;
-            while (!simulation_vr.update()) {}
-            saveSimulationResults(simulation_vr, outputFilename);
+        //for (int simIndex = 0; simIndex < n_simulations; simIndex++) {
+        //    unsigned seed = simIndex;
+        //    
+        //    // VINE ROBOT ONLY
+        //    std::mt19937 gen(seed);
+        //    Simulation sim1 = createSimulation(gen, posDist, true, -1.0f, timeLength);
+        //    sim1.vrActive = true;
+        //    sim1.rrActive = false;
+        //    while (!sim1.update()) {}
+        //    saveSimulationResults(sim1, outputFilename);
 
-            std::mt19937 gen2(seed);
-            Simulation simulation_no_vr = createSimulation(gen2, posDist, false);
-            simulation_no_vr.vrActive = false;
-            simulation_no_vr.rrActive = true;
-            while (!simulation_no_vr.update()) {}
-            saveSimulationResults(simulation_no_vr, outputFilename);
+        //    // RESCUE ROBOTS ONLY - one per minute
+        //    std::mt19937 gen2(seed);
+        //    Simulation sim2 = createSimulation(gen2, posDist, true, 60.0f, timeLength);
+        //    sim2.vrActive = false;
+        //    sim2.rrActive = true;
+        //    while (!sim2.update()) {}
+        //    saveSimulationResults(sim2, outputFilename);
 
-            std::mt19937 gen3(seed);
-            Simulation simulation_no_rr = createSimulation(gen3, posDist, true);
-            simulation_no_rr.vrActive = true;
-            simulation_no_rr.rrActive = false;
-            while (!simulation_no_rr.update()) {}
-            saveSimulationResults(simulation_no_rr, outputFilename);
+        //    // RESCUE ROBOTS ONLY - all at once
+        //    std::mt19937 gen3(seed);
+        //    Simulation sim3 = createSimulation(gen3, posDist, true, 5.0f, timeLength);
+        //    sim3.vrActive = false;
+        //    sim3.rrActive = true;
+        //    while (!sim3.update()) {}
+        //    saveSimulationResults(sim3, outputFilename);
 
-            std::cout << " =============== DONE " << simIndex << " =============== " << std::endl;
-        }
-        std::string cmd = "python ../scripts/plot_results.py " + outputFilename;
-        std::system(cmd.c_str());
+        //    // VINE + RESCUE ROBOTS - one per min
+        //    std::mt19937 gen4(seed);
+        //    Simulation sim4 = createSimulation(gen4, posDist, true, 60.0f, timeLength);
+        //    sim4.vrActive = true;
+        //    sim4.rrActive = true;
+        //    while (!sim4.update()) {}
+        //    saveSimulationResults(sim4, outputFilename);
+
+
+        //    // VINE + RESCUE ROBOTS - at tip on retraction (run separate)
+        //    std::mt19937 gen5(seed);
+        //    Simulation sim5 = createSimulation(gen5, posDist, true, 0.0f, timeLength);
+        //    sim5.vrActive = true;
+        //    sim5.rrActive = true;
+        //    while (!sim5.update()) {}
+        //    saveSimulationResults(sim5, outputFilename);
+
+
+
+        //    std::cout << " =================== DONE " << simIndex << " =================== " << std::endl;
+        //
+        //}
+         std::string cmd = "python ../scripts/plot_results.py " + outputFilename;
+         std::system(cmd.c_str());
     }
 
     return 0;
