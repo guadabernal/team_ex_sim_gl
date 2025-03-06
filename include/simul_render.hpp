@@ -159,6 +159,58 @@ inline void renderMeasurementGrid(const Simulation& simulation, float scaleFacto
     }
 }
 
+
+inline void renderMeasurementGridAlpha(const Simulation& simulation, float scaleFactor) {
+    int gridRows = simulation.grid.occupancy.size();
+    int gridCols = simulation.grid.occupancy[0].size();
+    float cellSize = simulation.known_grid.cellSize * scaleFactor;
+    for (int y = 0; y < gridRows; ++y) {
+        for (int x = 0; x < gridCols; ++x) {
+            bool draw = false;
+            int cell = simulation.grid.occupancy[y][x];
+            // If cell is unexplored (-1), use grey.
+            if (cell == -1) {
+                glColor4f(0.0f, 0.0f, 0.0f, 0.5f); // grey
+                draw = true;
+            }
+            else {
+                // Otherwise, color as follows:
+                // 0: wall -> black
+                // 1: ground -> white
+                // 2: hole -> dark blue
+                switch (cell) {
+                case 0:
+                    //glColor3f(0.0f, 0.0f, 0.0f); // black
+                    break;
+                case 1:
+                    //glColor4f(0.0f, 0.0f, 0.0f, 0.5f); // white
+                    //draw = true;
+                    break;
+                case 2:
+                    //glColor3f(0.0f, 0.0f, 0.5f); // dark blue
+                    break;
+                default:
+                    //glColor3f(1.0f, 1.0f, 1.0f);
+                    break;
+                }
+            }
+            if (draw) {
+                float left = x * cellSize;
+                float top = y * cellSize;
+                float right = left + cellSize;
+                float bottom = top + cellSize;
+                glBegin(GL_QUADS);
+                glVertex2f(left, top);
+                glVertex2f(right, top);
+                glVertex2f(right, bottom);
+                glVertex2f(left, bottom);
+                glEnd();
+            }
+        }
+    }
+}
+
+
 inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
     int rows = simulation.known_grid.heat.size();
     if (rows == 0) return;
@@ -251,6 +303,92 @@ inline void renderHeatMap(const Simulation& simulation, float scaleFactor) {
         glVertex2f(centerX + halfXSize, centerY - halfXSize);
         glEnd();
     }
+}
+
+
+inline void renderHeatMapOnly(const Simulation& simulation, float scaleFactor) {
+    int rows = simulation.known_grid.heat.size();
+    if (rows == 0) return;
+    int cols = simulation.known_grid.heat[0].size();
+    float cellSize = simulation.known_grid.cellSize * scaleFactor;
+
+    // Temperature range.
+    const float baseTemp = 20.0f;  // Room temp: white (#faf0ff)
+    const float maxTemp = 37.0f;   // Hottest: dark red (#4a001e)
+
+    //// For each cell in the heat grid.
+    //for (int i = 0; i < rows; i++) {
+    //    for (int j = 0; j < cols; j++) {
+    //        float temp = simulation.known_grid.heat[i][j];
+    //        float norm = (temp - baseTemp) / (maxTemp - baseTemp);
+    //        norm = std::clamp(norm, 0.0f, 1.0f);
+    //        // Interpolate from white to dark red.
+    //        // White (#faf0ff): (0.980, 0.941, 1.0)
+    //        // Dark red (#4a001e): (0.290, 0.000, 0.118)
+    //        float t = norm;
+    //        float r = (1.0f - t) * 0.980f + t * 0.290f;
+    //        float g = (1.0f - t) * 0.941f + t * 0.0f;
+    //        float b = (1.0f - t) * 1.0f + t * 0.118f;
+    //        if (r > 0.7 && g > 0.7 && b == 1)
+    //            continue;
+    //        glColor4f(r, g, b, 0.5);
+
+    //        float left = j * cellSize;
+    //        float top = i * cellSize;
+    //        float right = left + cellSize;
+    //        float bottom = top + cellSize;
+    //        glBegin(GL_QUADS);
+    //        glVertex2f(left, top);
+    //        glVertex2f(right, top);
+    //        glVertex2f(right, bottom);
+    //        glVertex2f(left, bottom);
+    //        glEnd();
+    //    }
+    //}
+  
+    // Draw person markers (unchanged).
+    float cellSizePixels = simulation.known_grid.cellSize * scaleFactor;
+    for (const auto& pos : simulation.personPositions) {
+        // Center in the cell.
+        float centerX = (pos.first / simulation.known_grid.cellSize + 0.5f) * cellSizePixels;
+        float centerY = (pos.second / simulation.known_grid.cellSize + 0.5f) * cellSizePixels;
+        float radiusScreen = 0.15f * scaleFactor;
+        const int numSegments = 50;
+
+        // Draw filled circle in red.
+        glColor3f(1.0f, 0.0f, 0.0f); // Red fill.
+        glBegin(GL_TRIANGLE_FAN);
+        glVertex2f(centerX, centerY); // Center of circle.
+        for (int i = 0; i <= numSegments; i++) {
+            float angle = 2.0f * 3.14159265f * i / numSegments;
+            float x = centerX + radiusScreen * std::cos(angle);
+            float y = centerY + radiusScreen * std::sin(angle);
+            glVertex2f(x, y);
+        }
+        glEnd();
+
+        // Draw black outline.
+        glColor3f(0.0f, 0.0f, 0.0f); // Black outline.
+        glLineWidth(2.0f);
+        glBegin(GL_LINE_LOOP);
+        for (int i = 0; i < numSegments; i++) {
+            float angle = 2.0f * 3.14159265f * i / numSegments;
+            float x = centerX + radiusScreen * std::cos(angle);
+            float y = centerY + radiusScreen * std::sin(angle);
+            glVertex2f(x, y);
+        }
+        glEnd();
+
+        // Draw the cross lines.
+        float halfXSize = radiusScreen * 0.5f;
+        glBegin(GL_LINES);
+        glVertex2f(centerX - halfXSize, centerY - halfXSize);
+        glVertex2f(centerX + halfXSize, centerY + halfXSize);
+        glVertex2f(centerX - halfXSize, centerY + halfXSize);
+        glVertex2f(centerX + halfXSize, centerY - halfXSize);
+        glEnd();
+    }
+
 }
 
 inline void renderDiscoveredHeatMap(const Simulation& simulation, float scaleFactor) {

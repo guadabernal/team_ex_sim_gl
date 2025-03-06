@@ -261,8 +261,8 @@ public:
         : known_grid(s.getGridRows(), s.getGridCols(), s.cellSize)
         , grid(s.getGridRows(), s.getGridRows(), s.cellSize)
         , consts(s)
-        , rrActive(false)
-        , vrActive(false)
+        , rrActive(s.rrEnable)
+        , vrActive(s.vrEnable)
         , nextRrSpawnIndex(0)
         , lastVineReversingState(false)
     {
@@ -400,7 +400,7 @@ public:
 
         for (auto& robot : rr) {
             if (robot.spawned && !robot.dead) {
-                robot.move(consts.dt, known_grid.occupancy, rr, known_grid.occupancy, grid.occupancy, grid.foundBy, known_grid.heat, grid.heat, known_grid.height, t);
+                robot.update(consts.dt, known_grid.occupancy, rr, known_grid.occupancy, grid.occupancy, grid.foundBy, known_grid.heat, grid.heat, known_grid.height, t);
             }
             updateCounter++;
             /*if (updateCounter % 50 == 0) {
