@@ -383,9 +383,8 @@ int main() {
         Simulation simulation = createSimulation(gen, posDist, activeVR, 60.0f, 2*60.0f);
         simulation.vrActive = activeVR;
         simulation.rrActive = activeRR;*/
-
         const float timeLength = 90 * 60.0f;
-        unsigned seed = 4;
+        unsigned seed = 40;
         // VINE + RESCUE ROBOTS - one per min ----------------------------
         std::mt19937 gen1(seed);
         std::mt19937 gen2(seed);
@@ -459,7 +458,7 @@ int main() {
                     std::this_thread::sleep_for(std::chrono::nanoseconds(100));
                     lastRenderTime = std::chrono::steady_clock::now();
                 }
-                std::this_thread::sleep_for(std::chrono::nanoseconds(1));
+                std::this_thread::sleep_for(std::chrono::nanoseconds(100));
             }
             running.store(false);
         });

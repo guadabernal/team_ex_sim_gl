@@ -106,8 +106,7 @@ struct RescueRobot {
     //   0 -> no collision,
     //   1 -> wall (or robot) collision,
     //   2 -> hole collision.
-    int checkCollision(const std::vector<std::vector<int>>& occupancy,
-        const std::vector<RescueRobot>& robots) {
+    int checkCollision(const std::vector<std::vector<int>>& occupancy,  const std::vector<RescueRobot>& robots) {
         float halfSize = size / 2.0f;
         float left_bound = x - halfSize;
         float right_bound = x + halfSize;
@@ -145,17 +144,22 @@ struct RescueRobot {
         if (holeFound) return 2;
 
         // Check collision with other robots.
+        float size2 = size * size;
         for (const auto& other : robots) {
-            if (&other == this || !other.spawned) continue;
-            float otherHalf = other.size / 2.0f;
-            float otherLeft = other.x - otherHalf;
-            float otherRight = other.x + otherHalf;
-            float otherTop = other.y - otherHalf;
-            float otherBottom = other.y + otherHalf;
-            bool overlapX = (x - halfSize < otherRight) && (x + halfSize > otherLeft);
-            bool overlapY = (y - halfSize < otherBottom) && (y + halfSize > otherTop);
-            if (overlapX && overlapY)
+            if (other.dead || &other == this || !other.spawned) continue;
+            float dx = other.x - x;
+            float dy = other.y - y;
+            if ((dx * dx + dy * dy) < size2)
                 return 1;
+            //float otherHalf = other.size / 2.0f;
+            //float otherLeft = other.x - otherHalf;
+            //float otherRight = other.x + otherHalf;
+            //float otherTop = other.y - otherHalf;
+            //float otherBottom = other.y + otherHalf;
+            //bool overlapX = (x - halfSize < otherRight) && (x + halfSize > otherLeft);
+            //bool overlapY = (y - halfSize < otherBottom) && (y + halfSize > otherTop);
+            //if (overlapX && overlapY)
+            //    return 1;
         }
         return 0;
     }
@@ -224,6 +228,7 @@ struct RescueRobot {
         }
         else if (collision == 2) {
             // Hole encountered: revert pose, stop robot and mark as dead.
+            std::cout << "robot died" << std::endl;
             x = prevX;
             y = prevY;
             theta = prevTheta;
@@ -299,15 +304,10 @@ struct RescueRobot {
             trueHeat, knownHeat, currentTime);
         // If a collision occurs, set rotationRemaining to a random angle between 90° and 180°.
         if (collisionCode == 1) {
-            std::uniform_real_distribution<float> angleDist(M_PI / 2.0f, M_PI);
-            float randomAngle = angleDist(*rng_ptr);
-            std::uniform_int_distribution<int> dirDist(0, 1);
-            int randomDir = dirDist(*rng_ptr);
-            if (randomDir == 0)
-                rotationRemaining = randomAngle;   // Rotate right (clockwise).
-            else
-                rotationRemaining = -randomAngle;  // Rotate left (counterclockwise).
+            std::uniform_real_distribution<float> angleDist(M_PI / 2.0f, 3.0f * M_PI / 2.0f);
+            rotationRemaining = angleDist(*rng_ptr);   // Always rotates clockwise.
         }
+
     }
 };
 

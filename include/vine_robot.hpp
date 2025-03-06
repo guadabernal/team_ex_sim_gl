@@ -35,6 +35,7 @@ struct VineRobot
     float tipSensorLastUpdate;
     std::mt19937* rng_ptr;
 
+
     VineRobot()
         : baseX(0.0f), baseY(0.0f), baseTheta(0.0f), length(0.0f), kappa(0.0f), expansionRate(0.05f),
         reversing(false), tipSensorLastUpdate(0.0f), rng_ptr(nullptr), pendingAngleRad(0.0f)
@@ -50,8 +51,85 @@ struct VineRobot
         points.push_back({ baseX, baseY });
     }
 
-    void move(const std::vector<std::vector<int>>& occupancy,
-        float cellSize, float dt)
+
+    void move(const std::vector<std::vector<int>>& occupancy, float cellSize, float dt)
+    {
+        if (!reversing) {
+            // -----------------------------
+            // (A) Expanding forward
+            // -----------------------------
+            float oldLength = length;
+            length += expansionRate * dt;
+
+            // Recompute the shape with the new length.
+            recomputeArcPoints();
+
+            // Check for collision.
+            if (checkCollision(occupancy, cellSize)) {
+                // Revert to old length and initiate reversal.
+                length = oldLength;
+                recomputeArcPoints();
+                reversing = true;
+                std::cout << "[DEBUG] Collision => start reversing from length=" << length << "\n";
+            }
+            else {
+                // Also check if the vine is forming a near loop back to its origin.
+                if (length > 1.0f) {
+                    auto tipPos = tip();
+                    float dx = tipPos.first - baseX;
+                    float dy = tipPos.second - baseY;
+                    float distToBase = std::sqrt(dx * dx + dy * dy);
+                    if (distToBase < 0.1f) {
+                        // The tip is too close to the base.
+                        length = oldLength;
+                        recomputeArcPoints();
+                        reversing = true;
+                        std::cout << "[DEBUG] Vine tip too close to base (distance = " << distToBase
+                            << " m). Initiating reversal to try a different angle.\n";
+                    }
+                }
+            }
+        }
+        else {
+            // -----------------------------
+            // (B) Reversing
+            // -----------------------------
+            // Shrink the vine.
+            float oldLength = length;
+            length -= expansionRate * dt;
+            if (length < 0.0f) { length = 0.0f; }
+            recomputeArcPoints();
+
+            if (length <= 1e-6f) {
+                length = 0.0f;
+                reversing = false;
+
+                // Define the number of discrete increments.
+                int numIncrements = 15;
+                // Define minimum and maximum turn angles in degrees.
+                float minAngleDeg = -MAX_TURN_ANGLE_DEG; // e.g., -4 deg.
+                float maxAngleDeg = MAX_TURN_ANGLE_DEG; // e.g., +4 deg.
+
+                // Compute the new turn angle based on the current index.
+                float angleDeg = minAngleDeg + currentTurnIndex * ((maxAngleDeg - minAngleDeg) / (numIncrements - 1));
+                pendingAngleRad = angleDeg * (PI / 180.0f);
+                kappa = 0.0f;
+
+                // Debug output.
+                std::cout << "[DEBUG] Fully retracted => new incremental angle = "
+                    << angleDeg << " deg (pendingAngleRad = " << pendingAngleRad << " rad), using index "
+                    << currentTurnIndex << "\n";
+
+                // Increment the index for next time (wrap around).
+                currentTurnIndex = (currentTurnIndex + 1) % numIncrements;
+            }
+
+        }
+        applyPendingAngleIfNeeded();
+    }
+
+
+    void move3(const std::vector<std::vector<int>>& occupancy, float cellSize, float dt)
     {
         if (!reversing) {
             // -----------------------------
@@ -300,6 +378,7 @@ struct VineRobot
 
 private:
     float pendingAngleRad = 0.0f;
+    int currentTurnIndex = 0;
 
     void applyPendingAngleIfNeeded()
     {
