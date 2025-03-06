@@ -338,14 +338,18 @@ float computeCoverage(const Simulation& sim) {
     for (const auto& robot : sim.rr) {
         if (!robot.spawned)
             continue;
-        int discoveredCount = 0;
         for (const auto& row : sim.grid.foundBy) {
             for (int cell : row) {
                 if (cell == robot.id)
-                    discoveredCount++;
+                    coveredCells++;
             }
         }
-        coveredCells += discoveredCount;
+    }
+    for (const auto& row : sim.grid.foundBy) {
+        for (int cell : row) {
+            if (cell == -2)
+                coveredCells++;
+        }
     }
     return (static_cast<float>(coveredCells) / totalCells) * 100.0f;
 }
@@ -384,7 +388,7 @@ int main() {
         simulation.vrActive = activeVR;
         simulation.rrActive = activeRR;*/
         const float timeLength = 90 * 60.0f;
-        unsigned seed = 40;
+        unsigned seed = 98;
         // VINE + RESCUE ROBOTS - one per min ----------------------------
         std::mt19937 gen1(seed);
         std::mt19937 gen2(seed);
@@ -458,7 +462,7 @@ int main() {
                     std::this_thread::sleep_for(std::chrono::nanoseconds(100));
                     lastRenderTime = std::chrono::steady_clock::now();
                 }
-                std::this_thread::sleep_for(std::chrono::nanoseconds(100));
+                //std::this_thread::sleep_for(std::chrono::nanoseconds(1));
             }
             running.store(false);
         });
